@@ -2,6 +2,7 @@ import { ArbitrageOpportunity, Token, Chain, PriceData } from '../types'
 import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
 import dexScreenerService, { DexScreenerPairRow } from './dexScreenerService'
 import priceService from './priceService'
+import { MOCK_ARBITRAGE_OPPORTUNITIES } from '../data/mockData'
 
 export interface ScanOptions {
   tokenAddress: string
@@ -36,40 +37,42 @@ class ArbitrageService {
 
     const startTime = Date.now()
     try {
-      // 1. Discover pairs for the token using DexScreener
-      const pairs = await dexScreenerService.fetchDexScreenerPairsByTokenAddress(options.tokenAddress)
-      if (!pairs || pairs.length === 0) {
+      console.log('Starting arbitrage scan for token:', options.tokenAddress)
+      
+      // 1. Get market data for all tokens to find opportunities
+      const chainIds = options.selectedChains || SUPPORTED_CHAINS.map(c => c.id)
+      const marketData = await dexScreenerService.fetchUsdtPairsForChains(chainIds)
+      
+      if (!marketData || marketData.length === 0) {
+        console.log('No market data available')
         return { opportunities: [], scanTime: Date.now() - startTime }
       }
 
-      // 2. Group pairs by chain
-      const pairsByChain: Record<string, DexScreenerPairRow[]> = {}
-      for (const pair of pairs) {
-        if (!pairsByChain[pair.chainId]) {
-          pairsByChain[pair.chainId] = []
+      // 2. Find the specific token in the market data
+      const tokenPairs = marketData.filter(pair => 
+        pair.baseToken.address.toLowerCase() === options.tokenAddress.toLowerCase() ||
+        pair.baseToken.symbol.toLowerCase() === options.tokenAddress.toLowerCase()
+      )
+
+      if (tokenPairs.length === 0) {
+        console.log('Token not found in market data, trying direct fetch...')
+        const directPairs = await dexScreenerService.fetchDexScreenerPairsByTokenAddress(options.tokenAddress)
+        if (directPairs.length > 0) {
+          tokenPairs.push(...directPairs)
         }
-        pairsByChain[pair.chainId].push(pair)
       }
 
-      // 3. For each chain, find arbitrage opportunities
-      const allOpportunities: ArbitrageOpportunity[] = []
-      for (const chainId in pairsByChain) {
-        if (options.selectedChains && !options.selectedChains.includes(chainId)) {
-          continue
-        }
-        const chainOpportunities = await this.findArbitrageOnChain(
-          chainId,
-          pairsByChain[chainId],
-          options.tradeSizeUSD
-        )
-        allOpportunities.push(...chainOpportunities)
+      if (tokenPairs.length === 0) {
+        return { opportunities: [], scanTime: Date.now() - startTime }
       }
 
-      // 4. Sort by net profit
-      allOpportunities.sort((a, b) => b.netProfit - a.netProfit)
+      // 3. Generate arbitrage opportunities from the pairs
+      const opportunities = this.generateArbitrageOpportunities(tokenPairs, options.tradeSizeUSD)
+      
+      console.log(`Found ${opportunities.length} arbitrage opportunities`)
 
       return {
-        opportunities: allOpportunities,
+        opportunities: opportunities,
         scanTime: Date.now() - startTime
       }
     } catch (error) {
@@ -84,125 +87,136 @@ class ArbitrageService {
     }
   }
 
-  private async findArbitrageOnChain(
-    chainId: string,
-    pairs: DexScreenerPairRow[],
-    tradeSizeUSD: number
-  ): Promise<ArbitrageOpportunity[]> {
-    const chain = SUPPORTED_CHAINS.find(c => c.id === chainId)
-    if (!chain) return []
-
-    const stablecoin = STABLECOINS[chainId]
-    if (!stablecoin) return []
-
-    const nativePriceUSD = await this.getNativePriceUSD(chain)
-    if (!nativePriceUSD) return []
-
-    const gasPriceGwei = await priceService.getGasPrice(chain)
-
-    // Get all supported DEXs on this chain that are present in the pairs
-    const dexIdsInPairs = new Set(pairs.map(p => p.dexId))
-    const dexsOnChain = SUPPORTED_DEXS.filter(d => d.chain === chainId && dexIdsInPairs.has(d.id))
-    if (dexsOnChain.length < 2) return []
-
+  private generateArbitrageOpportunities(pairs: DexScreenerPairRow[], tradeSizeUSD: number): ArbitrageOpportunity[] {
     const opportunities: ArbitrageOpportunity[] = []
+    
+    // Group pairs by chain
+    const pairsByChain: Record<string, DexScreenerPairRow[]> = {}
+    for (const pair of pairs) {
+      if (!pairsByChain[pair.chainId]) {
+        pairsByChain[pair.chainId] = []
+      }
+      pairsByChain[pair.chainId].push(pair)
+    }
 
-    // This is O(n^2) on the number of DEXs, which is fine for this use case.
-    for (let i = 0; i < dexsOnChain.length; i++) {
-      for (let j = 0; j < dexsOnChain.length; j++) {
-        if (i === j) continue
+    // For each chain, find arbitrage opportunities between DEXs
+    for (const chainId in pairsByChain) {
+      const chainPairs = pairsByChain[chainId]
+      if (chainPairs.length < 2) continue
 
-        const buyDEX = dexsOnChain[i]
-        const sellDEX = dexsOnChain[j]
+      const chain = SUPPORTED_CHAINS.find(c => c.id === chainId)
+      if (!chain) continue
 
-        const baseTokenInfo = pairs[0].baseToken
-        const token: Token = {
-          address: baseTokenInfo.address,
-          name: baseTokenInfo.name,
-          symbol: baseTokenInfo.symbol,
-          decimals: 18, // This is a big assumption, would need to be fetched for accuracy
-          logoURI: `https://tokens.1inch.io/${baseTokenInfo.address}.png`
+      // Find DEXs that have this token
+      const dexPairs = new Map<string, DexScreenerPairRow>()
+      for (const pair of chainPairs) {
+        const dex = SUPPORTED_DEXS.find(d => d.id === pair.dexId)
+        if (dex) {
+          dexPairs.set(dex.id, pair)
         }
+      }
 
-        const stableToken: Token = {
-          address: stablecoin.address,
-          name: 'Stablecoin',
-          symbol: 'USDT', // Assuming USDT for simplicity
-          decimals: stablecoin.decimals
+      const dexIds = Array.from(dexPairs.keys())
+      
+      // Generate opportunities between different DEXs
+      for (let i = 0; i < dexIds.length; i++) {
+        for (let j = 0; j < dexIds.length; j++) {
+          if (i === j) continue
+
+          const buyDexId = dexIds[i]
+          const sellDexId = dexIds[j]
+          const buyPair = dexPairs.get(buyDexId)!
+          const sellPair = dexPairs.get(sellDexId)!
+
+          const buyDex = SUPPORTED_DEXS.find(d => d.id === buyDexId)!
+          const sellDex = SUPPORTED_DEXS.find(d => d.id === sellDexId)!
+
+          // Calculate price difference
+          const buyPrice = buyPair.priceUsd
+          const sellPrice = sellPair.priceUsd
+          const priceDifference = sellPrice - buyPrice
+          const priceDifferencePercent = (priceDifference / buyPrice) * 100
+
+          // Only consider profitable opportunities
+          if (priceDifference <= 0) continue
+
+          // Calculate costs
+          const tradingFees = (tradeSizeUSD * buyDex.tradingFee) + (tradeSizeUSD * sellDex.tradingFee)
+          const gasCostUSD = this.estimateGasCostSimple(chainId)
+          const totalCosts = tradingFees + gasCostUSD
+
+          // Calculate profit
+          const grossProfit = (priceDifference / buyPrice) * tradeSizeUSD
+          const netProfit = grossProfit - totalCosts
+
+          // Only show profitable opportunities
+          if (netProfit <= 0) continue
+
+          const token: Token = {
+            address: buyPair.baseToken.address,
+            name: buyPair.baseToken.name,
+            symbol: buyPair.baseToken.symbol,
+            decimals: 18,
+            logoURI: `https://tokens.1inch.io/${buyPair.baseToken.address}.png`
+          }
+
+          const priceDataBuy: PriceData = {
+            dex: buyDex,
+            token,
+            price: buyPrice,
+            priceUSD: buyPrice,
+            liquidity: 0,
+            volume24h: 0,
+            lastUpdated: new Date()
+          }
+
+          const priceDataSell: PriceData = {
+            dex: sellDex,
+            token,
+            price: sellPrice,
+            priceUSD: sellPrice,
+            liquidity: 0,
+            volume24h: 0,
+            lastUpdated: new Date()
+          }
+
+          opportunities.push({
+            id: `${token.address}-${buyDex.id}-${sellDex.id}`,
+            token,
+            buyDEX: priceDataBuy,
+            sellDEX: priceDataSell,
+            priceDifference,
+            priceDifferencePercent,
+            estimatedCosts: {
+              buyGasFee: gasCostUSD / 2,
+              sellGasFee: gasCostUSD / 2,
+              bridgeFee: 0,
+              tradingFees,
+              totalCosts
+            },
+            netProfit,
+            netProfitPercent: (netProfit / tradeSizeUSD) * 100,
+            isCrossChain: false,
+            riskLevel: netProfit > 20 ? 'low' : netProfit > 5 ? 'medium' : 'high',
+            lastUpdated: new Date()
+          })
         }
-
-        // Get quote: Trade USD -> Token on Buy DEX
-        const buyQuote = await priceService.getQuote(tradeSizeUSD, stableToken, token, buyDEX, chain)
-        if (!buyQuote) continue
-
-        const amountOfTokenToSell = buyQuote.amountOut
-
-        // Get quote: Trade Token -> USD on Sell DEX
-        const amountReceived = await priceService.getQuoteForAmountIn(
-          amountOfTokenToSell,
-          token,
-          stableToken,
-          sellDEX,
-          chain
-        )
-        if (!amountReceived) continue
-
-        const amountSpentUSD = tradeSizeUSD
-        const amountReceivedUSD = parseFloat(ethers.formatUnits(amountReceived, stablecoin.decimals))
-
-        const grossProfit = amountReceivedUSD - amountSpentUSD
-        if (grossProfit <= 0) continue
-
-        // Re-calculate price for the sell side based on the actual quote
-        const sellPrice = amountReceivedUSD / parseFloat(ethers.formatUnits(amountOfTokenToSell, token.decimals))
-
-        // Fee Calculation
-        const tradingFees = (tradeSizeUSD * buyDEX.tradingFee) + (amountReceivedUSD * sellDEX.tradingFee)
-        const gasCostUSD = await this.estimateGasCost(chain, gasPriceGwei, nativePriceUSD)
-        const totalCosts = tradingFees + gasCostUSD
-
-        const netProfit = grossProfit - totalCosts
-        if (netProfit <= 0) continue
-
-        const priceDataBuy: PriceData = {
-          dex: buyDEX,
-          token,
-          price: buyQuote.price,
-          priceUSD: buyQuote.priceUSD,
-          liquidity: 0, volume24h: 0, lastUpdated: new Date()
-        }
-
-        const priceDataSell: PriceData = {
-          dex: sellDEX,
-          token,
-          price: sellPrice,
-          priceUSD: sellPrice, // Assuming stablecoin is 1:1 with USD
-          liquidity: 0, volume24h: 0, lastUpdated: new Date()
-        }
-
-        opportunities.push({
-          id: `${token.address}-${buyDEX.id}-${sellDEX.id}`,
-          token,
-          buyDEX: priceDataBuy,
-          sellDEX: priceDataSell,
-          priceDifference: priceDataSell.priceUSD - priceDataBuy.priceUSD,
-          priceDifferencePercent: ((priceDataSell.priceUSD - priceDataBuy.priceUSD) / priceDataBuy.priceUSD) * 100,
-          estimatedCosts: {
-            buyGasFee: gasCostUSD / 2,
-            sellGasFee: gasCostUSD / 2,
-            bridgeFee: 0,
-            tradingFees: tradingFees,
-            totalCosts: totalCosts
-          },
-          netProfit: netProfit,
-          netProfitPercent: (netProfit / tradeSizeUSD) * 100,
-          isCrossChain: false,
-          riskLevel: netProfit > 20 ? 'low' : netProfit > 5 ? 'medium' : 'high',
-          lastUpdated: new Date()
-        })
       }
     }
-    return opportunities
+
+    return opportunities.sort((a, b) => b.netProfit - a.netProfit)
+  }
+
+  private estimateGasCostSimple(chainId: string): number {
+    const gasCosts: Record<string, number> = {
+      ethereum: 50,
+      bsc: 5,
+      polygon: 2,
+      arbitrum: 15,
+      avalanche: 8,
+      fantom: 3
+    }
+    return gasCosts[chainId] || 10
   }
 
   private async estimateGasCost(chain: Chain, gasPriceGwei: number, nativePriceUSD: number): Promise<number> {

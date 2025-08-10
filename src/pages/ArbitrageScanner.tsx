@@ -4,8 +4,10 @@ import { ArbitrageOpportunity, FilterSettings } from '../types'
 import arbitrageService from '../services/arbitrageService'
 import dexScreenerService from '../services/dexScreenerService' // Keep for resolving token addresses
 import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
+import { useSearchParams } from 'react-router-dom'
 
 const ArbitrageScanner: React.FC = () => {
+  const [searchParams] = useSearchParams()
   const [isScanning, setIsScanning] = useState(false)
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([])
   const [filteredOpportunities, setFilteredOpportunities] = useState<ArbitrageOpportunity[]>([])
@@ -26,6 +28,24 @@ const ArbitrageScanner: React.FC = () => {
   useEffect(() => {
     applyFilters()
   }, [filters, opportunities])
+
+  // Handle token parameter from URL
+  useEffect(() => {
+    const tokenFromUrl = searchParams.get('token')
+    if (tokenFromUrl && !tokenAddressInput) {
+      setTokenAddressInput(tokenFromUrl)
+      // Auto-scan if token is provided in URL
+      setTimeout(() => {
+        handleScan()
+      }, 500)
+    } else if (!tokenFromUrl && opportunities.length === 0) {
+      // If no token in URL and no opportunities, do a default scan
+      setTimeout(() => {
+        setTokenAddressInput('WETH')
+        handleScan()
+      }, 1000)
+    }
+  }, [searchParams])
 
   const applyFilters = () => {
     let filtered = opportunities.filter(opp => {
@@ -161,10 +181,29 @@ const ArbitrageScanner: React.FC = () => {
         </div>
       </div>
 
+      {/* Quick Scan Buttons */}
+      <div className="card">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Scan Popular Tokens</h3>
+        <div className="flex flex-wrap gap-2">
+          {['WETH', 'UNI', 'LINK', 'MATIC', 'WBTC', 'SHIB', 'AAVE', 'CRV'].map((token) => (
+            <button
+              key={token}
+              onClick={() => {
+                setTokenAddressInput(token)
+                setTimeout(() => handleScan(), 100)
+              }}
+              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
+            >
+              {token}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Scan Status */}
       {scanStatus && (
-        <div className="card bg-blue-50 border-blue-200">
-          <div className="flex items-center space-x-2 text-blue-800">
+        <div className={`card ${isScanning ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200'}`}>
+          <div className={`flex items-center space-x-2 ${isScanning ? 'text-blue-800' : 'text-green-800'}`}>
             {isScanning && <RefreshCw className="w-4 h-4 animate-spin" />}
             <span>{scanStatus}</span>
           </div>

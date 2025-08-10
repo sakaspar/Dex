@@ -17,6 +17,8 @@ const Markets: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [query, setQuery] = useState('')
+  const [selectedDex, setSelectedDex] = useState<string>('all')
+  const [selectedChain, setSelectedChain] = useState<string>('all')
 
   const load = async (forceRefresh = false) => {
     setIsLoading(true)
@@ -38,6 +40,16 @@ const Markets: React.FC = () => {
   const tokens = useMemo<TokenAggregate[]>(() => {
     const map: Record<string, TokenAggregate> = {}
     for (const r of rows) {
+      // Apply DEX filter
+      if (selectedDex !== 'all' && !r.dexId.toLowerCase().includes(selectedDex.toLowerCase())) {
+        continue
+      }
+      
+      // Apply chain filter
+      if (selectedChain !== 'all' && r.chainId.toLowerCase() !== selectedChain.toLowerCase()) {
+        continue
+      }
+
       const key = r.baseToken.address
       if (!map[key]) {
         map[key] = {
@@ -68,7 +80,7 @@ const Markets: React.FC = () => {
 
     list.sort((a, b) => b.totalDexCount - a.totalDexCount)
     return list
-  }, [rows, query])
+  }, [rows, query, selectedDex, selectedChain])
 
   const getChainName = (id: string) => SUPPORTED_CHAINS.find(c => c.id === id)?.name || id
 
@@ -90,19 +102,57 @@ const Markets: React.FC = () => {
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by symbol, name, or address..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="input-field pl-10"
-            />
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-4 space-y-4 lg:space-y-0">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by symbol, name, or address..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="input-field pl-10"
+              />
+            </div>
+            
+            <select
+              value={selectedDex}
+              onChange={(e) => setSelectedDex(e.target.value)}
+              className="input-field w-full sm:w-48"
+            >
+              <option value="all">All DEXs</option>
+              <option value="uniswap-v2">Uniswap V2</option>
+              <option value="sushiswap">SushiSwap</option>
+              <option value="quickswap">QuickSwap</option>
+              <option value="spookyswap">SpookySwap</option>
+              <option value="pancakeswap">PancakeSwap</option>
+              <option value="traderjoe">TraderJoe</option>
+            </select>
+
+            <select
+              value={selectedChain}
+              onChange={(e) => setSelectedChain(e.target.value)}
+              className="input-field w-full sm:w-48"
+            >
+              <option value="all">All Chains</option>
+              <option value="ethereum">Ethereum</option>
+              <option value="bsc">BSC</option>
+              <option value="polygon">Polygon</option>
+              <option value="avalanche">Avalanche</option>
+              <option value="fantom">Fantom</option>
+              <option value="arbitrum">Arbitrum</option>
+            </select>
           </div>
-          <div className="text-sm text-gray-500 ml-4">
-            {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
+          
+          <div className="flex flex-col items-end space-y-1">
+            <div className="text-sm text-gray-500">
+              {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
+            </div>
+            <div className="text-sm text-gray-600">
+              Showing {tokens.length} tokens
+              {selectedDex !== 'all' && ` on ${selectedDex}`}
+              {selectedChain !== 'all' && ` (${selectedChain})`}
+            </div>
           </div>
         </div>
 

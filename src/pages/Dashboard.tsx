@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { TrendingUp, DollarSign, Activity, AlertTriangle, ArrowRight, RefreshCw, TrendingDown, Zap } from 'lucide-react'
-import { MOCK_ARBITRAGE_OPPORTUNITIES, SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
+import { ArbitrageOpportunity } from '../types'
+import arbitrageService from '../services/arbitrageService'
+import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
 
 const Dashboard: React.FC = () => {
-  const [opportunities, setOpportunities] = useState(MOCK_ARBITRAGE_OPPORTUNITIES)
+  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(new Date())
+  const [isLoading, setIsLoading] = useState(true)
 
   const totalOpportunities = opportunities.length
   const totalChains = SUPPORTED_CHAINS.filter(chain => chain.isActive).length
@@ -49,13 +52,58 @@ const Dashboard: React.FC = () => {
     return 'text-gray-600'
   }
 
+  const loadArbitrageOpportunities = async () => {
+    try {
+      setIsLoading(true)
+      console.log('Loading arbitrage opportunities...')
+      
+      // Scan for opportunities on popular tokens
+      const popularTokens = ['WETH', 'UNI', 'LINK', 'MATIC', 'WBTC', 'SHIB', 'AAVE', 'CRV']
+      const allOpportunities: ArbitrageOpportunity[] = []
+      
+      for (const token of popularTokens) {
+        try {
+          const result = await arbitrageService.scanForOpportunities({
+            tokenAddress: token,
+            tradeSizeUSD: 1000
+          })
+          
+          if (result.opportunities.length > 0) {
+            allOpportunities.push(...result.opportunities)
+          }
+          
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 200))
+        } catch (error) {
+          console.error(`Failed to scan ${token}:`, error)
+        }
+      }
+      
+      // Sort by profit and take top opportunities
+      const sortedOpportunities = allOpportunities
+        .sort((a, b) => b.netProfit - a.netProfit)
+        .slice(0, 10)
+      
+      setOpportunities(sortedOpportunities)
+      setLastUpdated(new Date())
+      console.log(`Loaded ${sortedOpportunities.length} arbitrage opportunities`)
+    } catch (error) {
+      console.error('Failed to load arbitrage opportunities:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleRefresh = async () => {
     setIsRefreshing(true)
-    // Simulate refresh
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setLastUpdated(new Date())
+    await loadArbitrageOpportunities()
     setIsRefreshing(false)
   }
+
+  // Load opportunities on component mount
+  useEffect(() => {
+    loadArbitrageOpportunities()
+  }, [])
 
   // Get top 3 most profitable opportunities
   const topOpportunities = [...opportunities]
@@ -164,7 +212,12 @@ const Dashboard: React.FC = () => {
           </Link>
         </div>
 
-        {topOpportunities.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-8">
+            <RefreshCw className="w-12 h-12 text-gray-400 mx-auto mb-4 animate-spin" />
+            <p className="text-gray-500">Loading arbitrage opportunities...</p>
+          </div>
+        ) : topOpportunities.length === 0 ? (
           <div className="text-center py-8">
             <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-500">No opportunities found. Start scanning to find deals!</p>
@@ -172,7 +225,11 @@ const Dashboard: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {topOpportunities.map((opportunity, index) => (
-              <div key={opportunity.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+              <Link 
+                key={opportunity.id} 
+                to={`/scanner?token=${opportunity.token.symbol}`}
+                className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center">
                     <img
@@ -218,7 +275,7 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}

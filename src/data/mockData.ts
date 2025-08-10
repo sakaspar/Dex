@@ -22,6 +22,55 @@ export const POPULAR_TOKENS: Token[] = [
     symbol: 'DAI',
     decimals: 18,
     logoURI: 'https://cryptologos.cc/logos/multi-collateral-dai-dai-logo.png'
+  },
+  {
+    address: '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8c', // USDC on Ethereum
+    name: 'USD Coin',
+    symbol: 'USDC',
+    decimals: 6,
+    logoURI: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png'
+  },
+  {
+    address: '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT on Ethereum
+    name: 'Tether',
+    symbol: 'USDT',
+    decimals: 6,
+    logoURI: 'https://cryptologos.cc/logos/tether-usdt-logo.png'
+  },
+  {
+    address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // WBTC on Ethereum
+    name: 'Wrapped Bitcoin',
+    symbol: 'WBTC',
+    decimals: 8,
+    logoURI: 'https://cryptologos.cc/logos/wrapped-bitcoin-wbtc-logo.png'
+  },
+  {
+    address: '0x514910771af9ca656af840dff83e8264ecf986ca', // LINK on Ethereum
+    name: 'Chainlink',
+    symbol: 'LINK',
+    decimals: 18,
+    logoURI: 'https://cryptologos.cc/logos/chainlink-link-logo.png'
+  },
+  {
+    address: '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0', // MATIC on Ethereum
+    name: 'Polygon',
+    symbol: 'MATIC',
+    decimals: 18,
+    logoURI: 'https://cryptologos.cc/logos/polygon-matic-logo.png'
+  },
+  {
+    address: '0x4fabb145d64652a948d72533023f6e7a623c7c53', // BUSD on Ethereum
+    name: 'Binance USD',
+    symbol: 'BUSD',
+    decimals: 18,
+    logoURI: 'https://cryptologos.cc/logos/binance-usd-busd-logo.png'
+  },
+  {
+    address: '0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce', // SHIB on Ethereum
+    name: 'Shiba Inu',
+    symbol: 'SHIB',
+    decimals: 18,
+    logoURI: 'https://cryptologos.cc/logos/shiba-inu-shib-logo.png'
   }
 ]
 
@@ -43,14 +92,14 @@ export const MOCK_ARBITRAGE_OPPORTUNITIES: ArbitrageOpportunity[] = [
     sellDEX: {
       dex: SUPPORTED_DEXS[0], // Uniswap V2
       token: POPULAR_TOKENS[1],
-      price: 7.15,
-      priceUSD: 7.15,
+      price: 7.25,
+      priceUSD: 7.25,
       liquidity: 20000000,
       volume24h: 3000000,
       lastUpdated: new Date()
     },
-    priceDifference: 0.03,
-    priceDifferencePercent: 0.42,
+    priceDifference: 0.13,
+    priceDifferencePercent: 1.82,
     estimatedCosts: {
       buyGasFee: 15.5,
       sellGasFee: 12.1,
@@ -58,10 +107,82 @@ export const MOCK_ARBITRAGE_OPPORTUNITIES: ArbitrageOpportunity[] = [
       tradingFees: 21.45,
       totalCosts: 49.05
     },
-    netProfit: -5.2,
-    netProfitPercent: -0.52,
+    netProfit: 12.45,
+    netProfitPercent: 1.75,
     isCrossChain: false,
-    riskLevel: 'high',
+    riskLevel: 'medium',
+    lastUpdated: new Date()
+  },
+  {
+    id: 'mock-2',
+    token: POPULAR_TOKENS[0], // WETH
+    buyDEX: {
+      dex: SUPPORTED_DEXS[2], // PancakeSwap
+      token: POPULAR_TOKENS[0],
+      price: 1850.50,
+      priceUSD: 1850.50,
+      liquidity: 50000000,
+      volume24h: 8000000,
+      lastUpdated: new Date()
+    },
+    sellDEX: {
+      dex: SUPPORTED_DEXS[0], // Uniswap V2
+      token: POPULAR_TOKENS[0],
+      price: 1865.75,
+      priceUSD: 1865.75,
+      liquidity: 75000000,
+      volume24h: 12000000,
+      lastUpdated: new Date()
+    },
+    priceDifference: 15.25,
+    priceDifferencePercent: 0.82,
+    estimatedCosts: {
+      buyGasFee: 8.2,
+      sellGasFee: 18.5,
+      bridgeFee: 0,
+      tradingFees: 45.60,
+      totalCosts: 72.30
+    },
+    netProfit: 145.20,
+    netProfitPercent: 0.78,
+    isCrossChain: false,
+    riskLevel: 'low',
+    lastUpdated: new Date()
+  },
+  {
+    id: 'mock-3',
+    token: POPULAR_TOKENS[2], // LINK
+    buyDEX: {
+      dex: SUPPORTED_DEXS[3], // QuickSwap
+      token: POPULAR_TOKENS[2],
+      price: 15.20,
+      priceUSD: 15.20,
+      liquidity: 25000000,
+      volume24h: 4000000,
+      lastUpdated: new Date()
+    },
+    sellDEX: {
+      dex: SUPPORTED_DEXS[1], // SushiSwap
+      token: POPULAR_TOKENS[2],
+      price: 15.45,
+      priceUSD: 15.45,
+      liquidity: 30000000,
+      volume24h: 5000000,
+      lastUpdated: new Date()
+    },
+    priceDifference: 0.25,
+    priceDifferencePercent: 1.64,
+    estimatedCosts: {
+      buyGasFee: 5.8,
+      sellGasFee: 14.2,
+      bridgeFee: 0,
+      tradingFees: 18.75,
+      totalCosts: 38.75
+    },
+    netProfit: 8.25,
+    netProfitPercent: 0.54,
+    isCrossChain: false,
+    riskLevel: 'medium',
     lastUpdated: new Date()
   }
 ]
@@ -87,5 +208,114 @@ export const MOCK_GAS_PRICES: GasPrice[] = [
     standard: 50,
     slow: 30,
     lastUpdated: new Date()
+  }
+]
+
+// Mock market data for fallback when API fails
+export const MOCK_MARKET_DATA = [
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 1850.50,
+    baseToken: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', name: 'Wrapped Ether' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'sushiswap',
+    priceUsd: 1852.30,
+    baseToken: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', name: 'Wrapped Ether' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 7.15,
+    baseToken: { address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984', symbol: 'UNI', name: 'Uniswap' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'bsc',
+    dexId: 'pancakeswap',
+    priceUsd: 7.12,
+    baseToken: { address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984', symbol: 'UNI', name: 'Uniswap' },
+    quoteToken: { address: '0x55d398326f99059ff775485246999027b3197955', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 1.00,
+    baseToken: { address: '0x6b175474e89094c44da98b954eedeac495271d0f', symbol: 'DAI', name: 'Dai' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 1.00,
+    baseToken: { address: '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8c', symbol: 'USDC', name: 'USD Coin' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 1.00,
+    baseToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' },
+    quoteToken: { address: '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8c', symbol: 'USDC', name: 'USD Coin' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 43250.00,
+    baseToken: { address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', symbol: 'WBTC', name: 'Wrapped Bitcoin' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 15.25,
+    baseToken: { address: '0x514910771af9ca656af840dff83e8264ecf986ca', symbol: 'LINK', name: 'Chainlink' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'polygon',
+    dexId: 'quickswap',
+    priceUsd: 0.85,
+    baseToken: { address: '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0', symbol: 'MATIC', name: 'Polygon' },
+    quoteToken: { address: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 1.00,
+    baseToken: { address: '0x4fabb145d64652a948d72533023f6e7a623c7c53', symbol: 'BUSD', name: 'Binance USD' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'ethereum',
+    dexId: 'uniswap-v2',
+    priceUsd: 0.00001234,
+    baseToken: { address: '0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce', symbol: 'SHIB', name: 'Shiba Inu' },
+    quoteToken: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'bsc',
+    dexId: 'pancakeswap',
+    priceUsd: 0.00001230,
+    baseToken: { address: '0x2859e4544c4bb03966803b044a93563bd2d0dd4d', symbol: 'SHIB', name: 'Shiba Inu' },
+    quoteToken: { address: '0x55d398326f99059ff775485246999027b3197955', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'avalanche',
+    dexId: 'traderjoe',
+    priceUsd: 1850.75,
+    baseToken: { address: '0x49d5c2bdffac6ce2bfdb6640f4f80f226bc10bab', symbol: 'WETH', name: 'Wrapped Ether' },
+    quoteToken: { address: '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7', symbol: 'USDT', name: 'Tether' }
+  },
+  {
+    chainId: 'fantom',
+    dexId: 'spookyswap',
+    priceUsd: 1851.20,
+    baseToken: { address: '0x74b23882a30290451a17c44f4f05243b6b58c76d', symbol: 'WETH', name: 'Wrapped Ether' },
+    quoteToken: { address: '0x04068da6c83afcfa0e13ba15a6696662335d5b75', symbol: 'USDC', name: 'USD Coin' }
   }
 ]

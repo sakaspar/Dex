@@ -22,11 +22,26 @@ class MarketService {
     }
 
     try {
+      console.log('Fetching real-time market data from DEXs...')
       const chainIds = SUPPORTED_CHAINS.map(c => c.id)
-      const pairs = await dexScreenerService.fetchUsdtPairsForChains(chainIds)
+      
+      // Try the enhanced fetching method first
+      let pairs = await dexScreenerService.fetchUsdtPairsForChains(chainIds)
+      
+      // If we didn't get enough data, try the direct method
+      if (pairs.length < 10) {
+        console.log('Trying direct DEX fetching...')
+        const directPairs = await dexScreenerService.fetchDirectFromDexs()
+        pairs = [...pairs, ...directPairs]
+      }
 
-      // Sort by a proxy for importance, e.g., price
+      // Filter for supported chains
+      pairs = pairs.filter(pair => chainIds.includes(pair.chainId))
+
+      // Sort by price (highest first)
       pairs.sort((a, b) => b.priceUsd - a.priceUsd)
+
+      console.log(`Successfully fetched ${pairs.length} real-time pairs`)
 
       this.cache = {
         data: pairs,
