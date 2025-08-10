@@ -1,287 +1,252 @@
-import { ArbitrageOpportunity, Token, DEX, Chain } from '../types'
-import { MOCK_ARBITRAGE_OPPORTUNITIES, SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
+import { ArbitrageOpportunity, Token, Chain, PriceData } from '../types'
+import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
+import dexScreenerService, { DexScreenerPairRow } from './dexScreenerService'
+import priceService from './priceService'
 
 export interface ScanOptions {
-  chains?: string[]
-  dexs?: string[]
-  minProfitThreshold?: number
-  maxGasFeeTolerance?: number
-  minLiquidity?: number
-  minVolume24h?: number
-  excludeCrossChain?: boolean
+  tokenAddress: string
+  tradeSizeUSD: number
+  selectedChains?: string[]
 }
 
 export interface ScanResult {
   opportunities: ArbitrageOpportunity[]
   scanTime: number
-  chainsScanned: string[]
-  dexsScanned: string[]
-  totalOpportunities: number
-  profitableOpportunities: number
-  averageProfit: number
+  error?: string
+}
+
+// Main stablecoin addresses, keyed by chain ID - should match priceService
+const STABLECOINS: Record<string, { address: string; decimals: number }> = {
+  ethereum: { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 }, // USDT
+  bsc: { address: '0x55d398326f99059ff775485246999027b3197955', decimals: 18 }, // BUSD-T
+  polygon: { address: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', decimals: 6 }, // USDT
+  arbitrum: { address: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', decimals: 6 }, // USDT
+  avalanche: { address: '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7', decimals: 6 }, // USDT
+  fantom: { address: '0x049d68029688eabf473097a2fc38ef61633a3c7a', decimals: 6 } // fUSDT
 }
 
 class ArbitrageService {
   private isScanning = false
-  private scanProgress = 0
-  private scanStatus = ''
 
-  /**
-   * Scan for arbitrage opportunities across specified chains and DEXs
-   */
-  async scanForOpportunities(options: ScanOptions = {}): Promise<ScanResult> {
+  async scanForOpportunities(options: ScanOptions): Promise<ScanResult> {
     if (this.isScanning) {
-      throw new Error('Scan already in progress')
+      throw new Error('A scan is already in progress.')
     }
-
     this.isScanning = true
-    this.scanProgress = 0
-    this.scanStatus = 'Initializing scan...'
 
+    const startTime = Date.now()
     try {
-      const startTime = Date.now()
-      
-      // Simulate scanning different networks
-      await this.simulateNetworkScan(options)
-      
-      // Generate mock opportunities based on options
-      const opportunities = this.generateMockOpportunities(options)
-      
-      // Apply filters
-      const filteredOpportunities = this.applyFilters(opportunities, options)
-      
-      // Sort by profit (highest first)
-      filteredOpportunities.sort((a, b) => b.netProfit - a.netProfit)
-      
-      const scanTime = Date.now() - startTime
-      
-      const result: ScanResult = {
-        opportunities: filteredOpportunities,
-        scanTime,
-        chainsScanned: options.chains || SUPPORTED_CHAINS.map(c => c.id),
-        dexsScanned: options.dexs || SUPPORTED_DEXS.map(d => d.id),
-        totalOpportunities: filteredOpportunities.length,
-        profitableOpportunities: filteredOpportunities.filter(opp => opp.netProfit > 0).length,
-        averageProfit: filteredOpportunities.length > 0 
-          ? filteredOpportunities.reduce((sum, opp) => sum + opp.netProfit, 0) / filteredOpportunities.length 
-          : 0
+      // 1. Discover pairs for the token using DexScreener
+      const pairs = await dexScreenerService.fetchDexScreenerPairsByTokenAddress(options.tokenAddress)
+      if (!pairs || pairs.length === 0) {
+        return { opportunities: [], scanTime: Date.now() - startTime }
       }
 
-      this.scanStatus = `Scan complete! Found ${result.totalOpportunities} opportunities.`
-      return result
+      // 2. Group pairs by chain
+      const pairsByChain: Record<string, DexScreenerPairRow[]> = {}
+      for (const pair of pairs) {
+        if (!pairsByChain[pair.chainId]) {
+          pairsByChain[pair.chainId] = []
+        }
+        pairsByChain[pair.chainId].push(pair)
+      }
 
+      // 3. For each chain, find arbitrage opportunities
+      const allOpportunities: ArbitrageOpportunity[] = []
+      for (const chainId in pairsByChain) {
+        if (options.selectedChains && !options.selectedChains.includes(chainId)) {
+          continue
+        }
+        const chainOpportunities = await this.findArbitrageOnChain(
+          chainId,
+          pairsByChain[chainId],
+          options.tradeSizeUSD
+        )
+        allOpportunities.push(...chainOpportunities)
+      }
+
+      // 4. Sort by net profit
+      allOpportunities.sort((a, b) => b.netProfit - a.netProfit)
+
+      return {
+        opportunities: allOpportunities,
+        scanTime: Date.now() - startTime
+      }
     } catch (error) {
-      this.scanStatus = 'Scan failed: ' + (error as Error).message
-      throw error
+      console.error('Error during arbitrage scan:', error)
+      return {
+        opportunities: [],
+        scanTime: Date.now() - startTime,
+        error: error instanceof Error ? error.message : 'An unknown error occurred'
+      }
     } finally {
       this.isScanning = false
-      this.scanProgress = 100
     }
   }
 
-  /**
-   * Simulate scanning different networks with progress updates
-   */
-  private async simulateNetworkScan(options: ScanOptions): Promise<void> {
-    const chains = options.chains || SUPPORTED_CHAINS.map(c => c.id)
-    const dexs = options.dexs || SUPPORTED_DEXS.map(d => d.id)
-    
-    const totalSteps = chains.length * dexs.length + 3 // +3 for analysis steps
-    let currentStep = 0
+  private async findArbitrageOnChain(
+    chainId: string,
+    pairs: DexScreenerPairRow[],
+    tradeSizeUSD: number
+  ): Promise<ArbitrageOpportunity[]> {
+    const chain = SUPPORTED_CHAINS.find(c => c.id === chainId)
+    if (!chain) return []
 
-    // Simulate connecting to each chain
-    for (const chainId of chains) {
-      const chain = SUPPORTED_CHAINS.find(c => c.id === chainId)
-      if (chain) {
-        this.scanStatus = `Connecting to ${chain.name} network...`
-        await this.delay(200)
-        currentStep++
-        this.scanProgress = (currentStep / totalSteps) * 100
-      }
-    }
+    const stablecoin = STABLECOINS[chainId]
+    if (!stablecoin) return []
 
-    // Simulate scanning each DEX
-    for (const dexId of dexs) {
-      const dex = SUPPORTED_DEXS.find(d => d.id === dexId)
-      if (dex) {
-        this.scanStatus = `Fetching prices from ${dex.name}...`
-        await this.delay(300)
-        currentStep++
-        this.scanProgress = (currentStep / totalSteps) * 100
-      }
-    }
+    const nativePriceUSD = await this.getNativePriceUSD(chain)
+    if (!nativePriceUSD) return []
 
-    // Final analysis steps
-    this.scanStatus = 'Analyzing arbitrage opportunities...'
-    await this.delay(200)
-    currentStep++
-    this.scanProgress = (currentStep / totalSteps) * 100
+    const gasPriceGwei = await priceService.getGasPrice(chain)
 
-    this.scanStatus = 'Calculating profit margins...'
-    await this.delay(200)
-    currentStep++
-    this.scanProgress = (currentStep / totalSteps) * 100
+    // Get all supported DEXs on this chain that are present in the pairs
+    const dexIdsInPairs = new Set(pairs.map(p => p.dexId))
+    const dexsOnChain = SUPPORTED_DEXS.filter(d => d.chain === chainId && dexIdsInPairs.has(d.id))
+    if (dexsOnChain.length < 2) return []
 
-    this.scanStatus = 'Finalizing results...'
-    await this.delay(200)
-    currentStep++
-    this.scanProgress = (currentStep / totalSteps) * 100
-  }
-
-  /**
-   * Generate mock opportunities based on scan options
-   */
-  private generateMockOpportunities(options: ScanOptions): ArbitrageOpportunity[] {
     const opportunities: ArbitrageOpportunity[] = []
-    const tokens = ['USDC', 'USDT', 'DAI', 'WBTC', 'LINK', 'AAVE', 'UNI', 'CRV', 'COMP', 'MKR']
-    
-    // Generate 5-15 opportunities
-    const numOpportunities = 5 + Math.floor(Math.random() * 10)
-    
-    for (let i = 0; i < numOpportunities; i++) {
-      const token = tokens[Math.floor(Math.random() * tokens.length)]
-      const buyPrice = 0.5 + Math.random() * 2 // Price between $0.5 and $2.5
-      const priceDifference = (Math.random() * 0.1 + 0.02) * buyPrice // 2-12% difference
-      const sellPrice = buyPrice + priceDifference
-      
-      // Calculate profit (assuming $1000 trade size)
-      const tradeSize = 1000
-      const grossProfit = (sellPrice - buyPrice) * (tradeSize / buyPrice)
-      const tradingFees = (buyPrice + sellPrice) * (tradeSize / buyPrice) * 0.003 // 0.3% fee
-      const gasFees = Math.random() * 0.02 + 0.005 // $5-$25 in gas
-      const netProfit = grossProfit - tradingFees - gasFees
-      
-      const opportunity: ArbitrageOpportunity = {
-        id: `scan-${Date.now()}-${i}`,
-        token: {
-          address: `0x${Math.random().toString(16).substr(2, 40)}`,
-          name: token,
-          symbol: token,
-          decimals: 18,
-          logoURI: `https://cryptologos.cc/logos/${token.toLowerCase()}-logo.png`
-        },
-        buyDEX: {
-          dex: SUPPORTED_DEXS[Math.floor(Math.random() * SUPPORTED_DEXS.length)],
-          token: { address: '', name: token, symbol: token, decimals: 18 },
-          price: buyPrice,
-          priceUSD: buyPrice,
-          liquidity: 50000 + Math.random() * 200000,
-          volume24h: 10000 + Math.random() * 100000,
-          lastUpdated: new Date()
-        },
-        sellDEX: {
-          dex: SUPPORTED_DEXS[Math.floor(Math.random() * SUPPORTED_DEXS.length)],
-          token: { address: '', name: token, symbol: token, decimals: 18 },
+
+    // This is O(n^2) on the number of DEXs, which is fine for this use case.
+    for (let i = 0; i < dexsOnChain.length; i++) {
+      for (let j = 0; j < dexsOnChain.length; j++) {
+        if (i === j) continue
+
+        const buyDEX = dexsOnChain[i]
+        const sellDEX = dexsOnChain[j]
+
+        const baseTokenInfo = pairs[0].baseToken
+        const token: Token = {
+          address: baseTokenInfo.address,
+          name: baseTokenInfo.name,
+          symbol: baseTokenInfo.symbol,
+          decimals: 18, // This is a big assumption, would need to be fetched for accuracy
+          logoURI: `https://tokens.1inch.io/${baseTokenInfo.address}.png`
+        }
+
+        const stableToken: Token = {
+          address: stablecoin.address,
+          name: 'Stablecoin',
+          symbol: 'USDT', // Assuming USDT for simplicity
+          decimals: stablecoin.decimals
+        }
+
+        // Get quote: Trade USD -> Token on Buy DEX
+        const buyQuote = await priceService.getQuote(tradeSizeUSD, stableToken, token, buyDEX, chain)
+        if (!buyQuote) continue
+
+        const amountOfTokenToSell = buyQuote.amountOut
+
+        // Get quote: Trade Token -> USD on Sell DEX
+        const amountReceived = await priceService.getQuoteForAmountIn(
+          amountOfTokenToSell,
+          token,
+          stableToken,
+          sellDEX,
+          chain
+        )
+        if (!amountReceived) continue
+
+        const amountSpentUSD = tradeSizeUSD
+        const amountReceivedUSD = parseFloat(ethers.formatUnits(amountReceived, stablecoin.decimals))
+
+        const grossProfit = amountReceivedUSD - amountSpentUSD
+        if (grossProfit <= 0) continue
+
+        // Re-calculate price for the sell side based on the actual quote
+        const sellPrice = amountReceivedUSD / parseFloat(ethers.formatUnits(amountOfTokenToSell, token.decimals))
+
+        // Fee Calculation
+        const tradingFees = (tradeSizeUSD * buyDEX.tradingFee) + (amountReceivedUSD * sellDEX.tradingFee)
+        const gasCostUSD = await this.estimateGasCost(chain, gasPriceGwei, nativePriceUSD)
+        const totalCosts = tradingFees + gasCostUSD
+
+        const netProfit = grossProfit - totalCosts
+        if (netProfit <= 0) continue
+
+        const priceDataBuy: PriceData = {
+          dex: buyDEX,
+          token,
+          price: buyQuote.price,
+          priceUSD: buyQuote.priceUSD,
+          liquidity: 0, volume24h: 0, lastUpdated: new Date()
+        }
+
+        const priceDataSell: PriceData = {
+          dex: sellDEX,
+          token,
           price: sellPrice,
-          priceUSD: sellPrice,
-          liquidity: 50000 + Math.random() * 200000,
-          volume24h: 10000 + Math.random() * 100000,
+          priceUSD: sellPrice, // Assuming stablecoin is 1:1 with USD
+          liquidity: 0, volume24h: 0, lastUpdated: new Date()
+        }
+
+        opportunities.push({
+          id: `${token.address}-${buyDEX.id}-${sellDEX.id}`,
+          token,
+          buyDEX: priceDataBuy,
+          sellDEX: priceDataSell,
+          priceDifference: priceDataSell.priceUSD - priceDataBuy.priceUSD,
+          priceDifferencePercent: ((priceDataSell.priceUSD - priceDataBuy.priceUSD) / priceDataBuy.priceUSD) * 100,
+          estimatedCosts: {
+            buyGasFee: gasCostUSD / 2,
+            sellGasFee: gasCostUSD / 2,
+            bridgeFee: 0,
+            tradingFees: tradingFees,
+            totalCosts: totalCosts
+          },
+          netProfit: netProfit,
+          netProfitPercent: (netProfit / tradeSizeUSD) * 100,
+          isCrossChain: false,
+          riskLevel: netProfit > 20 ? 'low' : netProfit > 5 ? 'medium' : 'high',
           lastUpdated: new Date()
-        },
-        priceDifference: priceDifference,
-        priceDifferencePercent: (priceDifference / buyPrice) * 100,
-        estimatedCosts: {
-          buyGasFee: gasFees / 2,
-          sellGasFee: gasFees / 2,
-          bridgeFee: Math.random() > 0.8 ? Math.random() * 0.01 : 0, // 20% chance of cross-chain
-          tradingFees: tradingFees,
-          totalCosts: gasFees + tradingFees
-        },
-        netProfit: netProfit,
-        netProfitPercent: (netProfit / tradeSize) * 100,
-        isCrossChain: Math.random() > 0.8,
-        riskLevel: netProfit > 20 ? 'low' : netProfit > 10 ? 'medium' : 'high',
-        lastUpdated: new Date()
+        })
       }
-      
-      opportunities.push(opportunity)
     }
-    
     return opportunities
   }
 
-  /**
-   * Apply filters to opportunities
-   */
-  private applyFilters(opportunities: ArbitrageOpportunity[], options: ScanOptions): ArbitrageOpportunity[] {
-    return opportunities.filter(opp => {
-      // Profit threshold
-      if (options.minProfitThreshold && opp.netProfit < options.minProfitThreshold) {
-        return false
-      }
-      
-      // Gas fee tolerance
-      if (options.maxGasFeeTolerance && opp.estimatedCosts.totalCosts > options.maxGasFeeTolerance) {
-        return false
-      }
-      
-      // Chain filter
-      if (options.chains && (!options.chains.includes(opp.buyDEX.dex.chain) || 
-          !options.chains.includes(opp.sellDEX.dex.chain))) {
-        return false
-      }
-      
-      // DEX filter
-      if (options.dexs && (!options.dexs.includes(opp.buyDEX.dex.id) || 
-          !options.dexs.includes(opp.sellDEX.dex.id))) {
-        return false
-      }
-      
-      // Liquidity filter
-      if (options.minLiquidity && (opp.buyDEX.liquidity < options.minLiquidity || 
-          opp.sellDEX.liquidity < options.minLiquidity)) {
-        return false
-      }
-      
-      // Volume filter
-      if (options.minVolume24h && (opp.buyDEX.volume24h < options.minVolume24h || 
-          opp.sellDEX.volume24h < options.minVolume24h)) {
-        return false
-      }
-      
-      // Cross-chain filter
-      if (options.excludeCrossChain && opp.isCrossChain) {
-        return false
-      }
-      
-      return true
-    })
+  private async estimateGasCost(chain: Chain, gasPriceGwei: number, nativePriceUSD: number): Promise<number> {
+    const gasPerSwap: Record<string, number> = {
+      ethereum: 150_000,
+      bsc: 120_000,
+      polygon: 120_000,
+      arbitrum: 250_000,
+      avalanche: 180_000,
+      fantom: 150_000
+    }
+    const gasLimit = gasPerSwap[chain.id] || 200_000
+    // Cost for two swaps (buy and sell)
+    const totalGasCost = (gasPriceGwei * 1e-9) * gasLimit * nativePriceUSD * 2
+    return totalGasCost
   }
 
-  /**
-   * Get current scan status
-   */
-  getScanStatus(): { isScanning: boolean; progress: number; status: string } {
-    return {
-      isScanning: this.isScanning,
-      progress: this.scanProgress,
-      status: this.scanStatus
+  private async getNativePriceUSD(chain: Chain): Promise<number | null> {
+    const symbolMap: Record<string, string> = {
+      'ETH': 'ethereum',
+      'BNB': 'binancecoin',
+      'MATIC': 'matic-network',
+      'AVAX': 'avalanche-2',
+      'FTM': 'fantom'
+    }
+    const coingeckoId = symbolMap[chain.nativeCurrency.symbol]
+    if (!coingeckoId) return null
+    try {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`
+      const resp = await fetch(url)
+      const data = await resp.json()
+      return data[coingeckoId]?.usd || null
+    } catch (e) {
+      console.error('Failed to fetch native price from coingecko', e)
+      return null
     }
   }
 
-  /**
-   * Get supported chains
-   */
   getSupportedChains(): Chain[] {
     return SUPPORTED_CHAINS
   }
 
-  /**
-   * Get supported DEXs
-   */
-  getSupportedDEXs(): DEX[] {
+  getSupportedDEXs() {
     return SUPPORTED_DEXS
-  }
-
-  /**
-   * Get mock opportunities for testing
-   */
-  getMockOpportunities(): ArbitrageOpportunity[] {
-    return MOCK_ARBITRAGE_OPPORTUNITIES
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
   }
 }
 

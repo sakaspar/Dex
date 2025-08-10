@@ -1,26 +1,33 @@
-import axios from 'axios'
 import { ethers } from 'ethers'
-import { Token, PriceData, DEX, Chain } from '../types'
+import { Chain, DEX, Token } from '../types'
 
-// Price aggregator APIs
-const COINGECKO_API = 'https://api.coingecko.com/api/v3'
-const COINMARKETCAP_API = 'https://pro-api.coinmarketcap.com/v1'
+// Standard ABI for Uniswap V2-style routers
+const UNISWAP_V2_ROUTER_ABI = [
+  'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)'
+]
 
-// DEX subgraph endpoints
-const UNISWAP_SUBGRAPH = 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3'
-const SUSHISWAP_SUBGRAPH = 'https://api.thegraph.com/subgraphs/name/sushiswap/exchange'
+// Main stablecoin addresses, keyed by chain ID
+const STABLECOINS: Record<string, string> = {
+  ethereum: '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+  bsc: '0x55d398326f99059ff775485246999027b3197955', // USDT
+  polygon: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', // USDT
+  arbitrum: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9' // USDT
+}
 
-export interface PriceFetchResult {
-  success: boolean
-  data?: PriceData
-  error?: string
-  source: string
+export interface Quote {
+  amountIn: bigint
+  amountOut: bigint
+  price: number
+  priceUSD: number
 }
 
 export class PriceService {
   private static instance: PriceService
-  private cache: Map<string, { data: PriceData; timestamp: number }> = new Map()
-  private readonly CACHE_DURATION = 30000 // 30 seconds
+  private providers: Map<string, ethers.JsonRpcProvider> = new Map()
+
+  private constructor() {
+    // Private constructor for singleton
+  }
 
   static getInstance(): PriceService {
     if (!PriceService.instance) {
@@ -29,321 +36,123 @@ export class PriceService {
     return PriceService.instance
   }
 
-  async getTokenPrice(
-    token: Token,
+  private getProvider(chain: Chain): ethers.JsonRpcProvider {
+    if (!this.providers.has(chain.id)) {
+      const provider = new ethers.JsonRpcProvider(chain.rpcUrls[0])
+      this.providers.set(chain.id, provider)
+    }
+    return this.providers.get(chain.id)!
+  }
+
+  /**
+   * Gets a real-time quote for a trade from a DEX router contract.
+   * This is the core function for getting accurate, executable prices.
+   */
+  async getQuote(
+    tradeSizeUSD: number,
+    tokenIn: Token,
+    tokenOut: Token,
     dex: DEX,
     chain: Chain
-  ): Promise<PriceFetchResult> {
-    const cacheKey = `${token.address}-${dex.id}-${chain.id}`
-    const cached = this.cache.get(cacheKey)
-    
-    if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
-      return {
-        success: true,
-        data: cached.data,
-        source: 'cache'
-      }
-    }
-
+  ): Promise<Quote | null> {
     try {
-      // Try DEX-specific price first
-      const dexPrice = await this.fetchDEXPrice(token, dex, chain)
-      if (dexPrice.success && dexPrice.data) {
-        this.cache.set(cacheKey, {
-          data: dexPrice.data,
-          timestamp: Date.now()
-        })
-        return dexPrice
+      const provider = this.getProvider(chain)
+      const router = new ethers.Contract(dex.routerAddress, UNISWAP_V2_ROUTER_ABI, provider)
+
+      // To get a quote for a certain USD value, we first need to price the input token in USD.
+      // We do this by getting a quote for swapping 1 unit of the token to the chain's main stablecoin.
+      const stablecoinAddress = STABLECOINS[chain.id]
+      if (!stablecoinAddress) {
+        // console.error(`No stablecoin configured for chain ${chain.id}`)
+        return null
       }
 
-      // Fallback to aggregator APIs
-      const aggregatorPrice = await this.fetchAggregatorPrice(token, chain)
-      if (aggregatorPrice.success && aggregatorPrice.data) {
-        // Create a mock DEX price structure for aggregator data
-        const mockDexPrice: PriceData = {
-          dex,
-          token,
-          price: aggregatorPrice.data.price,
-          priceUSD: aggregatorPrice.data.priceUSD,
-          liquidity: 0, // Not available from aggregator
-          volume24h: 0, // Not available from aggregator
-          lastUpdated: new Date()
-        }
-        
-        this.cache.set(cacheKey, {
-          data: mockDexPrice,
-          timestamp: Date.now()
-        })
-        
-        return {
-          success: true,
-          data: mockDexPrice,
-          source: 'aggregator'
-        }
+      // Path for pricing: TokenIn -> Stablecoin
+      const pricingPath = [tokenIn.address, stablecoinAddress]
+      const oneToken = ethers.parseUnits('1', tokenIn.decimals)
+
+      let pricePerTokenUSD: number
+      if (tokenIn.address.toLowerCase() === stablecoinAddress.toLowerCase()) {
+        pricePerTokenUSD = 1.0
+      } else {
+        const amountsOut = await router.getAmountsOut(oneToken, pricingPath)
+        // The second amount is the stablecoin value, which has 6 decimals for USDT
+        pricePerTokenUSD = parseFloat(ethers.formatUnits(amountsOut[1], 6))
       }
+
+      if (!pricePerTokenUSD || pricePerTokenUSD <= 0) {
+        // console.error(`Could not determine USD price for ${tokenIn.symbol}`)
+        return null
+      }
+
+      // Now calculate the amount of tokenIn needed for the desired trade size
+      const amountIn = ethers.parseUnits((tradeSizeUSD / pricePerTokenUSD).toFixed(tokenIn.decimals), tokenIn.decimals)
+
+      // Path for actual trade: TokenIn -> TokenOut
+      const tradePath = [tokenIn.address, tokenOut.address]
+      const tradeAmounts = await router.getAmountsOut(amountIn, tradePath)
+
+      const amountOut = tradeAmounts[1]
+
+      if (amountOut === 0n) return null
+
+      // Final price based on the quote
+      const price = parseFloat(ethers.formatUnits(amountOut, tokenOut.decimals)) / parseFloat(ethers.formatUnits(amountIn, tokenIn.decimals))
 
       return {
-        success: false,
-        error: 'Failed to fetch price from all sources',
-        source: 'none'
+        amountIn,
+        amountOut,
+        price,
+        priceUSD: price * pricePerTokenUSD,
       }
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        source: 'error'
-      }
+      // console.error(`Failed to get quote from ${dex.name} on ${chain.name} for ${tokenIn.symbol}->${tokenOut.symbol}:`, error)
+      return null
     }
   }
 
-  private async fetchDEXPrice(
-    token: Token,
+  /**
+   * Gets a real-time quote for a specific input amount.
+   */
+  async getQuoteForAmountIn(
+    amountIn: bigint,
+    tokenIn: Token,
+    tokenOut: Token,
     dex: DEX,
     chain: Chain
-  ): Promise<PriceFetchResult> {
+  ): Promise<bigint | null> {
     try {
-      switch (dex.id) {
-        case 'uniswap-v3':
-          return await this.fetchUniswapV3Price(token, dex, chain)
-        case 'sushiswap':
-          return await this.fetchSushiSwapPrice(token, dex, chain)
-        case 'pancakeswap':
-          return await this.fetchPancakeSwapPrice(token, dex, chain)
-        default:
-          return {
-            success: false,
-            error: `Unsupported DEX: ${dex.id}`,
-            source: 'dex'
-          }
-      }
+      const provider = this.getProvider(chain)
+      const router = new ethers.Contract(dex.routerAddress, UNISWAP_V2_ROUTER_ABI, provider)
+      const tradePath = [tokenIn.address, tokenOut.address]
+      const amounts = await router.getAmountsOut(amountIn, tradePath)
+      return amounts[1]
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'DEX fetch error',
-        source: 'dex'
-      }
+      // console.error(`Failed to get quote for amount from ${dex.name} on ${chain.name} for ${tokenIn.symbol}->${tokenOut.symbol}:`, error)
+      return null
     }
   }
 
-  private async fetchUniswapV3Price(
-    token: Token,
-    dex: DEX,
-    chain: Chain
-  ): Promise<PriceFetchResult> {
-    try {
-      // Query Uniswap V3 subgraph for pool data
-      const query = `
-        query {
-          pools(
-            where: {
-              token0: "${token.address.toLowerCase()}"
-              token1: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" # WETH
-            }
-            orderBy: totalValueLockedUSD
-            orderDirection: desc
-            first: 1
-          ) {
-            id
-            token0Price
-            token1Price
-            totalValueLockedUSD
-            volumeUSD
-          }
-        }
-      `
-
-      const response = await axios.post(UNISWAP_SUBGRAPH, { query })
-      const pools = response.data?.data?.pools
-
-      if (pools && pools.length > 0) {
-        const pool = pools[0]
-        const price = parseFloat(pool.token0Price)
-        const priceUSD = price * 1850 // Approximate ETH price
-
-        return {
-          success: true,
-          data: {
-            dex,
-            token,
-            price,
-            priceUSD,
-            liquidity: parseFloat(pool.totalValueLockedUSD),
-            volume24h: parseFloat(pool.volumeUSD),
-            lastUpdated: new Date()
-          },
-          source: 'uniswap-v3'
-        }
-      }
-
-      return {
-        success: false,
-        error: 'No pools found',
-        source: 'uniswap-v3'
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Uniswap V3 error',
-        source: 'uniswap-v3'
-      }
-    }
-  }
-
-  private async fetchSushiSwapPrice(
-    token: Token,
-    dex: DEX,
-    chain: Chain
-  ): Promise<PriceFetchResult> {
-    try {
-      // Query SushiSwap subgraph for pair data
-      const query = `
-        query {
-          pairs(
-            where: {
-              token0: "${token.address.toLowerCase()}"
-              token1: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" # WETH
-            }
-            orderBy: reserveUSD
-            orderDirection: desc
-            first: 1
-          ) {
-            id
-            token0Price
-            token1Price
-            reserveUSD
-            volumeUSD
-          }
-        }
-      `
-
-      const response = await axios.post(SUSHISWAP_SUBGRAPH, { query })
-      const pairs = response.data?.data?.pairs
-
-      if (pairs && pairs.length > 0) {
-        const pair = pairs[0]
-        const price = parseFloat(pair.token0Price)
-        const priceUSD = price * 1850 // Approximate ETH price
-
-        return {
-          success: true,
-          data: {
-            dex,
-            token,
-            price,
-            priceUSD,
-            liquidity: parseFloat(pair.reserveUSD),
-            volume24h: parseFloat(pair.volumeUSD),
-            lastUpdated: new Date()
-          },
-          source: 'sushiswap'
-        }
-      }
-
-      return {
-        success: false,
-        error: 'No pairs found',
-        source: 'sushiswap'
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'SushiSwap error',
-        source: 'sushiswap'
-      }
-    }
-  }
-
-  private async fetchPancakeSwapPrice(
-    token: Token,
-    dex: DEX,
-    chain: Chain
-  ): Promise<PriceFetchResult> {
-    // PancakeSwap doesn't have a public subgraph, so we'll use aggregator
-    return {
-      success: false,
-      error: 'PancakeSwap price fetching not implemented',
-      source: 'pancakeswap'
-    }
-  }
-
-  private async fetchAggregatorPrice(
-    token: Token,
-    chain: Chain
-  ): Promise<PriceFetchResult> {
-    try {
-      // Try CoinGecko first (free tier)
-      const coingeckoId = this.getCoinGeckoId(token.symbol)
-      if (coingeckoId) {
-        const response = await axios.get(
-          `${COINGECKO_API}/simple/price?ids=${coingeckoId}&vs_currencies=usd&include_24hr_vol=true`
-        )
-        
-        if (response.data[coingeckoId]) {
-          const data = response.data[coingeckoId]
-          return {
-            success: true,
-            data: {
-              dex: {} as DEX, // Will be filled by caller
-              token,
-              price: data.usd,
-              priceUSD: data.usd,
-              liquidity: 0,
-              volume24h: data.usd_24h_vol || 0,
-              lastUpdated: new Date()
-            },
-            source: 'coingecko'
-          }
-        }
-      }
-
-      return {
-        success: false,
-        error: 'No aggregator price available',
-        source: 'aggregator'
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Aggregator error',
-        source: 'aggregator'
-      }
-    }
-  }
-
-  private getCoinGeckoId(symbol: string): string | null {
-    const mapping: { [key: string]: string } = {
-      'ETH': 'ethereum',
-      'UNI': 'uniswap',
-      'DAI': 'dai',
-      'WETH': 'weth',
-      'USDC': 'usd-coin',
-      'USDT': 'tether',
-      'WBTC': 'wrapped-bitcoin'
-    }
-    return mapping[symbol.toUpperCase()] || null
-  }
-
+  /**
+   * Fetches the current gas price for a chain.
+   */
   async getGasPrice(chain: Chain): Promise<number> {
     try {
-      const provider = new ethers.JsonRpcProvider(chain.rpcUrls[0])
-      const gasPrice = await provider.getFeeData()
-      return Number(ethers.formatUnits(gasPrice.gasPrice || 0, 'gwei'))
+      const provider = this.getProvider(chain)
+      const feeData = await provider.getFeeData()
+      return Number(ethers.formatUnits(feeData.gasPrice || 0, 'gwei'))
     } catch (error) {
-      console.error('Failed to fetch gas price:', error)
-      return 25 // Default fallback
-    }
-  }
-
-  clearCache(): void {
-    this.cache.clear()
-  }
-
-  getCacheStats(): { size: number; keys: string[] } {
-    return {
-      size: this.cache.size,
-      keys: Array.from(this.cache.keys())
+      // console.error(`Failed to fetch gas price for ${chain.name}:`, error)
+      // Return a reasonable fallback
+      const fallbackGwei: Record<string, number> = {
+        ethereum: 25,
+        bsc: 3,
+        polygon: 50,
+        arbitrum: 0.5,
+      }
+      return fallbackGwei[chain.id] ?? 25
     }
   }
 }
 
-export default PriceService
+export default PriceService.getInstance()
