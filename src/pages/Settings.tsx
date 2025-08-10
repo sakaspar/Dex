@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Save, Bell, Shield, Globe, Database, Zap, AlertTriangle } from 'lucide-react'
-import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
+import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState({

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Search } from 'lucide-react'
-import { SUPPORTED_CHAINS } from '../data/mockData'
+import { SUPPORTED_CHAINS } from '../data/chains'
 import dexScreener, { DexScreenerPairRow } from '../services/dexScreenerService'
 
 interface TokenAggregate {
