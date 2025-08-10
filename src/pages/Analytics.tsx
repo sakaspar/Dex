@@ -1,123 +1,49 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
-import { Calendar, TrendingUp, DollarSign, Activity, Filter, RefreshCw } from 'lucide-react'
-import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
-import { ArbitrageOpportunity } from '../types'
-import arbitrageService from '../services/arbitrageService'
+import { Calendar, TrendingUp, DollarSign, Activity, Filter } from 'lucide-react'
+import { MOCK_ARBITRAGE_OPPORTUNITIES, SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
 
 const Analytics: React.FC = () => {
   const [timeRange, setTimeRange] = useState('7d')
   const [selectedMetric, setSelectedMetric] = useState('profit')
-  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  // Real data for charts - will be populated from live data
-  const [profitData, setProfitData] = useState([
-    { date: '2024-01-01', profit: 0, opportunities: 0 },
-    { date: '2024-01-02', profit: 0, opportunities: 0 },
-    { date: '2024-01-03', profit: 0, opportunities: 0 },
-    { date: '2024-01-04', profit: 0, opportunities: 0 },
-    { date: '2024-01-05', profit: 0, opportunities: 0 },
-    { date: '2024-01-06', profit: 0, opportunities: 0 },
-    { date: '2024-01-07', profit: 0, opportunities: 0 }
-  ])
+  // Mock data for charts
+  const profitData = [
+    { date: '2024-01-01', profit: 45.23, opportunities: 12 },
+    { date: '2024-01-02', profit: 67.89, opportunities: 18 },
+    { date: '2024-01-03', profit: 34.56, opportunities: 15 },
+    { date: '2024-01-04', profit: 89.12, opportunities: 22 },
+    { date: '2024-01-05', profit: 56.78, opportunities: 19 },
+    { date: '2024-01-06', profit: 78.90, opportunities: 25 },
+    { date: '2024-01-07', profit: 92.34, opportunities: 28 }
+  ]
 
-  const fetchLiveData = async () => {
-    try {
-      setIsLoading(true)
-      
-      // Fetch popular tokens for analytics
-      const popularTokens = [
-        '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984', // UNI
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
-        '0x6b175474e89094c44da98b954eedeac495271d0f', // DAI
-        '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8', // USDC
-        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599'  // WBTC
-      ]
-
-      const allOpportunities: ArbitrageOpportunity[] = []
-      
-      // Fetch opportunities across multiple chains
-      for (const tokenAddress of popularTokens) {
-        for (const chain of SUPPORTED_CHAINS.slice(0, 3)) { // Focus on top 3 chains
-          try {
-            const result = await arbitrageService.scanForOpportunities({
-              tokenAddress,
-              tradeSizeUSD: 1000, // $1000 trade size
-              selectedChains: [chain.id]
-            })
-            
-            if (result.opportunities.length > 0) {
-              allOpportunities.push(...result.opportunities)
-            }
-          } catch (error) {
-            console.warn(`Failed to fetch data for token ${tokenAddress} on ${chain.id}:`, error)
-          }
-        }
-      }
-
-      setOpportunities(allOpportunities)
-      setLastUpdated(new Date())
-
-      // Generate realistic profit trend data based on current opportunities
-      const currentProfit = allOpportunities.reduce((sum, opp) => sum + opp.netProfit, 0)
-      const currentOpportunities = allOpportunities.length
-      
-      const trendData = profitData.map((day, index) => ({
-        ...day,
-        profit: Math.max(0, currentProfit * (0.7 + Math.random() * 0.6)), // Vary around current profit
-        opportunities: Math.max(0, currentOpportunities * (0.5 + Math.random() * 1.0)) // Vary around current count
-      }))
-      
-      setProfitData(trendData)
-
-    } catch (error) {
-      console.error('Failed to fetch analytics data:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchLiveData()
-    
-    // Auto-refresh every 10 minutes
-    const interval = setInterval(fetchLiveData, 10 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Calculate real analytics data
   const chainData = SUPPORTED_CHAINS.map(chain => ({
     name: chain.name,
-    opportunities: opportunities.filter(opp => 
+    opportunities: MOCK_ARBITRAGE_OPPORTUNITIES.filter(opp =>
       opp.buyDEX.dex.chain === chain.id || opp.sellDEX.dex.chain === chain.id
     ).length,
-    volume: opportunities.filter(opp => 
-      opp.buyDEX.dex.chain === chain.id || opp.sellDEX.dex.chain === chain.id
-    ).reduce((sum, opp) => sum + (opp.buyDEX.volume24h || 0), 0)
+    volume: Math.random() * 1000000 + 500000
   }))
 
   const dexData = SUPPORTED_DEXS.map(dex => ({
     name: dex.name,
-    opportunities: opportunities.filter(opp => 
+    opportunities: MOCK_ARBITRAGE_OPPORTUNITIES.filter(opp =>
       opp.buyDEX.dex.id === dex.id || opp.sellDEX.dex.id === dex.id
     ).length,
-    volume: opportunities.filter(opp => 
-      opp.buyDEX.dex.id === dex.id || opp.sellDEX.dex.id === dex.id
-    ).reduce((sum, opp) => sum + (opp.buyDEX.volume24h || 0), 0)
+    volume: Math.random() * 2000000 + 1000000
   }))
 
   const riskData = [
-    { name: 'Low Risk', value: opportunities.filter(opp => opp.riskLevel === 'low').length, color: '#22c55e' },
-    { name: 'Medium Risk', value: opportunities.filter(opp => opp.riskLevel === 'medium').length, color: '#eab308' },
-    { name: 'High Risk', value: opportunities.filter(opp => opp.riskLevel === 'high').length, color: '#ef4444' }
+    { name: 'Low Risk', value: MOCK_ARBITRAGE_OPPORTUNITIES.filter(opp => opp.riskLevel === 'low').length, color: '#22c55e' },
+    { name: 'Medium Risk', value: MOCK_ARBITRAGE_OPPORTUNITIES.filter(opp => opp.riskLevel === 'medium').length, color: '#eab308' },
+    { name: 'High Risk', value: MOCK_ARBITRAGE_OPPORTUNITIES.filter(opp => opp.riskLevel === 'high').length, color: '#ef4444' }
   ]
 
-  const totalProfit = opportunities.reduce((sum, opp) => sum + opp.netProfit, 0)
-  const totalOpportunities = opportunities.length
+  const totalProfit = MOCK_ARBITRAGE_OPPORTUNITIES.reduce((sum, opp) => sum + opp.netProfit, 0)
+  const totalOpportunities = MOCK_ARBITRAGE_OPPORTUNITIES.length
   const avgProfitPerOpportunity = totalOpportunities > 0 ? totalProfit / totalOpportunities : 0
-  const successRate = totalOpportunities > 0 ? (opportunities.filter(opp => opp.netProfit > 0).length / totalOpportunities) * 100 : 0
+  const successRate = 85 // Mock success rate
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -143,14 +69,6 @@ const Analytics: React.FC = () => {
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-          <button
-            onClick={fetchLiveData}
-            disabled={isLoading}
-            className="btn-secondary flex items-center space-x-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
-          </button>
           <select
             value={timeRange}
             onChange={(e) => setTimeRange(e.target.value)}
@@ -174,9 +92,7 @@ const Analytics: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Profit</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : formatCurrency(totalProfit)}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalProfit)}</p>
             </div>
           </div>
         </div>
@@ -188,9 +104,7 @@ const Analytics: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Opportunities</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : formatNumber(totalOpportunities)}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{formatNumber(totalOpportunities)}</p>
             </div>
           </div>
         </div>
@@ -202,9 +116,7 @@ const Analytics: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Avg Profit/Opportunity</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : formatCurrency(avgProfitPerOpportunity)}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(avgProfitPerOpportunity)}</p>
             </div>
           </div>
         </div>
@@ -216,9 +128,7 @@ const Analytics: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Success Rate</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : `${successRate.toFixed(1)}%`}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{successRate}%</p>
             </div>
           </div>
         </div>
@@ -229,94 +139,70 @@ const Analytics: React.FC = () => {
         {/* Profit Trend Chart */}
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Profit Trend</h3>
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={profitData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip formatter={(value, name) => [formatCurrency(Number(value)), name]} />
-                <Legend />
-                <Line type="monotone" dataKey="profit" stroke="#3b82f6" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={profitData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip formatter={(value, name) => [formatCurrency(Number(value)), name]} />
+              <Legend />
+              <Line type="monotone" dataKey="profit" stroke="#3b82f6" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
 
         {/* Opportunities by Chain */}
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Opportunities by Chain</h3>
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chainData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value, name) => [formatNumber(Number(value)), name]} />
-                <Legend />
-                <Bar dataKey="opportunities" fill="#3b82f6" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={chainData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip formatter={(value, name) => [formatNumber(Number(value)), name]} />
+              <Legend />
+              <Bar dataKey="opportunities" fill="#3b82f6" />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
 
         {/* Risk Distribution */}
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Risk Distribution</h3>
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={riskData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {riskData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [formatNumber(Number(value)), 'Opportunities']} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={riskData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {riskData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value) => [formatNumber(Number(value)), 'Opportunities']} />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
 
         {/* DEX Performance */}
         <div className="card">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">DEX Performance</h3>
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={dexData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value, name) => [formatNumber(Number(value)), name]} />
-                <Legend />
-                <Bar dataKey="opportunities" fill="#10b981" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={dexData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip formatter={(value, name) => [formatNumber(Number(value)), name]} />
+              <Legend />
+              <Bar dataKey="opportunities" fill="#10b981" />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -407,14 +293,6 @@ const Analytics: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Last Updated */}
-      {lastUpdated && (
-        <div className="text-center text-sm text-gray-500">
-          Last updated: {lastUpdated.toLocaleString()}
-          {isLoading && <span className="ml-2">(Refreshing...)</span>}
-        </div>
-      )}
     </div>
   )
 }

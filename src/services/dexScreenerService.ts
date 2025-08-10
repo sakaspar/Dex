@@ -132,10 +132,13 @@ async function fetchUsdtPairsForChains(chains: string[]): Promise<DexScreenerPai
   const allowedChains = new Set(chains.map((c) => c.toLowerCase()))
   const allowedQuotes = new Set(['USDT', 'USDC', 'DAI', 'WETH', 'WBNB', 'WMATIC'])
 
-  const filtered = merged.filter((r) =>
+  let filtered = merged.filter((r) =>
     allowedChains.has(r.chainId) &&
     allowedQuotes.has((r.quoteToken.symbol || '').toUpperCase())
   )
+
+  // Exclude pairs where the base token is also a quote token (e.g. USDT/USDC)
+  filtered = filtered.filter(r => !allowedQuotes.has((r.baseToken.symbol || '').toUpperCase()))
 
   // Deduplicate by chain:baseAddress
   const seen = new Set<string>()

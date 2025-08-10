@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { TrendingUp, DollarSign, Activity, AlertTriangle, ArrowRight, RefreshCw, TrendingDown, Zap } from 'lucide-react'
-import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
-import { ArbitrageOpportunity } from '../types'
-import arbitrageService from '../services/arbitrageService'
+import { MOCK_ARBITRAGE_OPPORTUNITIES, SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
 
 const Dashboard: React.FC = () => {
-  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([])
+  const [opportunities, setOpportunities] = useState(MOCK_ARBITRAGE_OPPORTUNITIES)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(new Date())
-  const [isLoading, setIsLoading] = useState(true)
 
   const totalOpportunities = opportunities.length
   const totalChains = SUPPORTED_CHAINS.filter(chain => chain.isActive).length
@@ -52,64 +49,13 @@ const Dashboard: React.FC = () => {
     return 'text-gray-600'
   }
 
-  const fetchLiveData = async () => {
-    try {
-      setIsLoading(true)
-      
-      // Fetch popular tokens and their arbitrage opportunities
-      const popularTokens = [
-        '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984', // UNI
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
-        '0x6b175474e89094c44da98b954eedeac495271d0f', // DAI
-        '0xa0b86a33e6441b8c4c8c8c8c8c8c8c8c8c8c8c8', // USDC
-        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599'  // WBTC
-      ]
-
-      const allOpportunities: ArbitrageOpportunity[] = []
-      
-      for (const tokenAddress of popularTokens) {
-        try {
-          const result = await arbitrageService.scanForOpportunities({
-            tokenAddress,
-            tradeSizeUSD: 1000, // $1000 trade size
-            selectedChains: ['ethereum'] // Focus on Ethereum for dashboard
-          })
-          
-          if (result.opportunities.length > 0) {
-            allOpportunities.push(...result.opportunities)
-          }
-        } catch (error) {
-          console.warn(`Failed to fetch data for token ${tokenAddress}:`, error)
-        }
-      }
-
-      // Sort by net profit and take top opportunities
-      const sortedOpportunities = allOpportunities
-        .sort((a, b) => b.netProfit - a.netProfit)
-        .slice(0, 10) // Show top 10 opportunities
-
-      setOpportunities(sortedOpportunities)
-      setLastUpdated(new Date())
-    } catch (error) {
-      console.error('Failed to fetch live data:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const handleRefresh = async () => {
     setIsRefreshing(true)
-    await fetchLiveData()
+    // Simulate refresh
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    setLastUpdated(new Date())
     setIsRefreshing(false)
   }
-
-  useEffect(() => {
-    fetchLiveData()
-    
-    // Auto-refresh every 5 minutes
-    const interval = setInterval(fetchLiveData, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
 
   // Get top 3 most profitable opportunities
   const topOpportunities = [...opportunities]
@@ -140,7 +86,7 @@ const Dashboard: React.FC = () => {
         <div className="mt-4 sm:mt-0 flex items-center space-x-3">
           <button 
             onClick={handleRefresh}
-            disabled={isRefreshing || isLoading}
+            disabled={isRefreshing}
             className="btn-secondary flex items-center space-x-2"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -162,9 +108,7 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Active Opportunities</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : totalOpportunities}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{totalOpportunities}</p>
             </div>
           </div>
         </div>
@@ -177,7 +121,7 @@ const Dashboard: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Profit Potential</p>
               <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : formatCurrency(totalProfitPotential)}
+                {formatCurrency(totalProfitPotential)}
               </p>
             </div>
           </div>
@@ -190,9 +134,7 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">High Profit (&gt;$10)</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : highProfitOpportunities}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{highProfitOpportunities}</p>
             </div>
           </div>
         </div>
@@ -205,7 +147,7 @@ const Dashboard: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Avg Profit %</p>
               <p className="text-2xl font-bold text-gray-900">
-                {isLoading ? '...' : formatPercentage(avgProfitPercent)}
+                {formatPercentage(avgProfitPercent)}
               </p>
             </div>
           </div>
@@ -222,15 +164,10 @@ const Dashboard: React.FC = () => {
           </Link>
         </div>
 
-        {isLoading ? (
-          <div className="text-center py-8">
-            <RefreshCw className="w-12 h-12 text-gray-400 mx-auto mb-4 animate-spin" />
-            <p className="text-gray-500">Loading live market data...</p>
-          </div>
-        ) : topOpportunities.length === 0 ? (
+        {topOpportunities.length === 0 ? (
           <div className="text-center py-8">
             <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">No profitable opportunities found. Try scanning for specific tokens!</p>
+            <p className="text-gray-500">No opportunities found. Start scanning to find deals!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -338,7 +275,6 @@ const Dashboard: React.FC = () => {
       {/* Last Updated */}
       <div className="text-center text-sm text-gray-500">
         Last updated: {lastUpdated.toLocaleString()}
-        {isLoading && <span className="ml-2">(Refreshing...)</span>}
       </div>
     </div>
   )
