@@ -185,7 +185,7 @@ const ArbitrageScanner: React.FC = () => {
       <div className="card">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Scan Popular Tokens</h3>
         <div className="flex flex-wrap gap-2">
-          {['WETH', 'UNI', 'LINK', 'MATIC', 'WBTC', 'SHIB', 'AAVE', 'CRV'].map((token) => (
+          {['WETH', 'UNI', 'LINK', 'MATIC', 'WBTC', 'SHIB', 'AAVE', 'CRV', 'COMP', 'SUSHI', 'USDC', 'USDT', 'DAI', 'BUSD', 'CAKE', 'WBNB', 'WAVAX', 'WFTM', 'ARB', 'OP', 'MKR', 'SNX', 'YFI', 'BAL', 'REN', 'KNC', 'ZRX', 'BAND', 'NMR', 'REP', 'LRC', 'MANA', 'SAND', 'ENJ', 'CHZ', 'HOT', 'VET', 'TRX', 'ADA', 'DOT', 'SOL', 'AVAX', 'FTM', 'NEAR', 'ALGO', 'ATOM', 'XLM', 'XRP', 'LTC', 'BCH'].map((token) => (
             <button
               key={token}
               onClick={() => {

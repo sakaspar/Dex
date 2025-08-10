@@ -49,7 +49,7 @@ class ArbitrageService {
       }
 
       // 2. Find the specific token in the market data
-      const tokenPairs = marketData.filter(pair => 
+      let tokenPairs = marketData.filter(pair => 
         pair.baseToken.address.toLowerCase() === options.tokenAddress.toLowerCase() ||
         pair.baseToken.symbol.toLowerCase() === options.tokenAddress.toLowerCase()
       )
@@ -62,14 +62,23 @@ class ArbitrageService {
         }
       }
 
+      // 3. If still no pairs, try searching by symbol
+      if (tokenPairs.length === 0) {
+        console.log('Trying symbol search...')
+        const searchPairs = await dexScreenerService.searchPairs(options.tokenAddress)
+        tokenPairs = searchPairs.filter(pair => 
+          chainIds.includes(pair.chainId.toLowerCase())
+        )
+      }
+
       if (tokenPairs.length === 0) {
         return { opportunities: [], scanTime: Date.now() - startTime }
       }
 
-      // 3. Generate arbitrage opportunities from the pairs
+      // 4. Generate arbitrage opportunities from the pairs
       const opportunities = this.generateArbitrageOpportunities(tokenPairs, options.tradeSizeUSD)
       
-      console.log(`Found ${opportunities.length} arbitrage opportunities`)
+      console.log(`Found ${opportunities.length} arbitrage opportunities for ${options.tokenAddress}`)
 
       return {
         opportunities: opportunities,

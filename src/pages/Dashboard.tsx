@@ -57,8 +57,14 @@ const Dashboard: React.FC = () => {
       setIsLoading(true)
       console.log('Loading arbitrage opportunities...')
       
-      // Scan for opportunities on popular tokens
-      const popularTokens = ['WETH', 'UNI', 'LINK', 'MATIC', 'WBTC', 'SHIB', 'AAVE', 'CRV']
+      // Scan for opportunities on popular tokens - expanded list for better coverage
+      const popularTokens = [
+        'WETH', 'UNI', 'LINK', 'MATIC', 'WBTC', 'SHIB', 'AAVE', 'CRV', 'COMP', 'SUSHI',
+        'USDC', 'USDT', 'DAI', 'BUSD', 'CAKE', 'WBNB', 'WAVAX', 'WFTM', 'ARB', 'OP',
+        'MKR', 'SNX', 'YFI', 'BAL', 'REN', 'KNC', 'ZRX', 'BAND', 'NMR', 'REP',
+        'LRC', 'MANA', 'SAND', 'ENJ', 'CHZ', 'HOT', 'VET', 'TRX', 'ADA', 'DOT',
+        'SOL', 'AVAX', 'FTM', 'NEAR', 'ALGO', 'ATOM', 'XLM', 'XRP', 'LTC', 'BCH'
+      ]
       const allOpportunities: ArbitrageOpportunity[] = []
       
       for (const token of popularTokens) {
