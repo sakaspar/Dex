@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Search } from 'lucide-react'
+import { DexScreenerPairRow } from '../services/dexScreenerService'
+import marketService from '../services/marketService'
 import { SUPPORTED_CHAINS } from '../data/chains'
-import dexScreener, { DexScreenerPairRow } from '../services/dexScreenerService'
 
 interface TokenAggregate {
   address: string
@@ -13,29 +14,15 @@ interface TokenAggregate {
 
 const Markets: React.FC = () => {
   const [rows, setRows] = useState<DexScreenerPairRow[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [query, setQuery] = useState('')
 
-  const selectedChains = SUPPORTED_CHAINS.map((c) => c.id)
-
-  const load = async () => {
+  const load = async (forceRefresh = false) => {
     setIsLoading(true)
     try {
-      // Merge: any rows saved during Scanner runs + fresh USDT pairs
-      const cached = dexScreener.getAllLatestRows()
-      const fetched = await dexScreener.fetchUsdtPairsForChains(selectedChains)
-      const merged = [...cached, ...fetched]
-      // Deduplicate by chain:base:DEX
-      const seen = new Set<string>()
-      const unique: DexScreenerPairRow[] = []
-      for (const r of merged) {
-        const key = `${r.chainId}:${r.baseToken.address}:${r.dexId}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        unique.push(r)
-      }
-      setRows(unique)
+      const data = await marketService.getMarketData(forceRefresh)
+      setRows(data)
       setLastUpdated(new Date())
     } finally {
       setIsLoading(false)
@@ -43,15 +30,15 @@ const Markets: React.FC = () => {
   }
 
   useEffect(() => {
-    load()
-    const id = setInterval(load, 60_000)
+    load() // Initial load
+    const id = setInterval(() => load(), 60_000) // Auto-refresh every minute
     return () => clearInterval(id)
   }, [])
 
   const tokens = useMemo<TokenAggregate[]>(() => {
     const map: Record<string, TokenAggregate> = {}
     for (const r of rows) {
-      const key = `${r.baseToken.address}`
+      const key = r.baseToken.address
       if (!map[key]) {
         map[key] = {
           address: r.baseToken.address,
@@ -71,26 +58,31 @@ const Markets: React.FC = () => {
       ch.maxPrice = Math.max(ch.maxPrice, r.priceUsd)
       ag.totalDexCount += 1
     }
+
     let list = Object.values(map)
+
     if (query.trim()) {
       const q = query.trim().toLowerCase()
       list = list.filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || t.address.toLowerCase().includes(q))
     }
+
     list.sort((a, b) => b.totalDexCount - a.totalDexCount)
     return list
   }, [rows, query])
 
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
+  const getChainName = (id: string) => SUPPORTED_CHAINS.find(c => c.id === id)?.name || id
+
+  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Markets</h1>
-          <p className="mt-2 text-gray-600">All tokens scanned from supported DEXs (USDT pairs)</p>
+          <p className="mt-2 text-gray-600">Popular tokens across all supported DEXs.</p>
         </div>
         <div className="flex items-center space-x-3 mt-4 sm:mt-0">
-          <button onClick={load} className="btn-secondary flex items-center space-x-2" disabled={isLoading}>
+          <button onClick={() => load(true)} className="btn-secondary flex items-center space-x-2" disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
@@ -110,7 +102,7 @@ const Markets: React.FC = () => {
             />
           </div>
           <div className="text-sm text-gray-500 ml-4">
-            {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : '—'}
+            {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
           </div>
         </div>
 
@@ -119,25 +111,38 @@ const Markets: React.FC = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Token</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chains</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DEXs</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total DEXs</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price Range (USD)</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {tokens.map((t) => (
+              {isLoading && (
+                <tr>
+                  <td colSpan={4} className="text-center py-12 text-gray-500">
+                    <div className="flex justify-center items-center space-x-2">
+                      <RefreshCw className="w-6 h-6 animate-spin" />
+                      <span>Loading market data...</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!isLoading && tokens.map((t) => (
                 <tr key={t.address} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{t.symbol}</div>
-                    <div className="text-sm text-gray-500">{t.name}</div>
+                    <div className="flex items-center">
+                      <img className="h-8 w-8 rounded-full" src={`https://tokens.1inch.io/${t.address}.png`} alt={t.symbol} onError={(e) => { (e.target as HTMLImageElement).src = `https://via.placeholder.com/32/${(Math.random() + 1).toString(36).substring(7)}/FFFFFF?text=${t.symbol}`}} />
+                      <div className="ml-3">
+                        <div className="text-sm font-medium text-gray-900">{t.symbol}</div>
+                        <div className="text-sm text-gray-500">{t.name}</div>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-xs break-all text-gray-600">{t.address}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(t.chains).map(([chainId, info]) => (
-                        <span key={chainId} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                          {chainId} · {info.dexCount}
+                        <span key={chainId} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800" title={`${info.dexCount} DEXs on ${getChainName(chainId)}`}>
+                          {getChainName(chainId)}
                         </span>
                       ))}
                     </div>
@@ -148,7 +153,8 @@ const Markets: React.FC = () => {
                       const allRanges = Object.values(t.chains)
                       const min = Math.min(...allRanges.map((c) => c.minPrice))
                       const max = Math.max(...allRanges.map((c) => c.maxPrice))
-                      return `${formatCurrency(min)} — ${formatCurrency(max)}`
+                      if (min === max) return formatCurrency(min)
+                      return `${formatCurrency(min)} - ${formatCurrency(max)}`
                     })()}
                   </td>
                 </tr>
@@ -162,5 +168,3 @@ const Markets: React.FC = () => {
 }
 
 export default Markets
-
-

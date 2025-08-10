@@ -1,8 +1,7 @@
 import React, { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
 import { Calendar, TrendingUp, DollarSign, Activity, Filter } from 'lucide-react'
-import { MOCK_ARBITRAGE_OPPORTUNITIES } from '../data/mockData'
-import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
+import { MOCK_ARBITRAGE_OPPORTUNITIES, SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
 
 const Analytics: React.FC = () => {
   const [timeRange, setTimeRange] = useState('7d')

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { TrendingUp, DollarSign, Activity, AlertTriangle, ArrowRight, RefreshCw, TrendingDown, Zap } from 'lucide-react'
-import { MOCK_ARBITRAGE_OPPORTUNITIES } from '../data/mockData'
-import { SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/chains'
+import { MOCK_ARBITRAGE_OPPORTUNITIES, SUPPORTED_CHAINS, SUPPORTED_DEXS } from '../data/mockData'
 
 const Dashboard: React.FC = () => {
   const [opportunities, setOpportunities] = useState(MOCK_ARBITRAGE_OPPORTUNITIES)
