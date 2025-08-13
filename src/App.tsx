@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import Header from './components/Header'
 import Dashboard from './pages/Dashboard'
 import ArbitrageScanner from './pages/ArbitrageScanner'
+import Compare from './pages/Compare'
 import Analytics from './pages/Analytics'
 import Markets from './pages/Markets'
 import Settings from './pages/Settings'
@@ -17,6 +18,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/scanner" element={<ArbitrageScanner />} />
             <Route path="/markets" element={<Markets />} />
+            <Route path="/compare" element={<Compare />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
