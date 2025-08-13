@@ -27,33 +27,26 @@ const ArbitrageScanner: React.FC = () => {
 
   useEffect(() => {
     applyFilters()
-  }, [filters, opportunities])
-
-  // Handle token parameter from URL
-  useEffect(() => {
-    const tokenFromUrl = searchParams.get('token')
-    if (tokenFromUrl && !tokenAddressInput) {
-      setTokenAddressInput(tokenFromUrl)
-      // Auto-scan if token is provided in URL
-      setTimeout(() => {
-        handleScan()
-      }, 500)
-    } else if (!tokenFromUrl && opportunities.length === 0) {
-      // If no token in URL and no opportunities, do a default scan
-      setTimeout(() => {
-        setTokenAddressInput('WETH')
-        handleScan()
-      }, 1000)
-    }
-  }, [searchParams])
+  }, [filters, opportunities, tokenAddressInput]) // Re-run filters when token input changes
 
   const applyFilters = () => {
     let filtered = opportunities.filter(opp => {
       if (opp.netProfit < filters.minProfitThreshold) return false
       if (opp.estimatedCosts.totalCosts > filters.maxGasFeeTolerance) return false
       if (!filters.selectedChains.includes(opp.buyDEX.dex.chain)) return false
-      // DEX filter is implicitly handled by the scan now
       if (filters.excludeCrossChain && opp.isCrossChain) return false
+
+      // Add filtering for token symbol/address
+      if (tokenAddressInput.trim()) {
+        const searchTerm = tokenAddressInput.trim().toLowerCase()
+        if (
+          !opp.token.symbol.toLowerCase().includes(searchTerm) &&
+          !opp.token.address.toLowerCase().includes(searchTerm)
+        ) {
+          return false
+        }
+      }
+
       return true
     })
     
@@ -62,31 +55,15 @@ const ArbitrageScanner: React.FC = () => {
   }
 
   const handleScan = async () => {
-    if (!tokenAddressInput.trim()) {
-      setScanStatus('Please enter a token symbol or contract address.')
-      setTimeout(() => setScanStatus(''), 3000)
-      return
-    }
-
     setIsScanning(true)
     setOpportunities([]) // Clear previous results
-    setScanStatus('Resolving token address...')
+    setFilteredOpportunities([])
+    setScanStatus('Starting market-wide scan...')
 
     try {
-      let address = tokenAddressInput.trim()
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        const resolved = await dexScreenerService.resolveTokenAddress(address)
-        if (!resolved) {
-          setScanStatus(`Could not resolve token "${address}". Try the contract address.`)
-          setIsScanning(false)
-          return
-        }
-        address = resolved.address
-      }
-
-      setScanStatus('Scanning for opportunities on-chain...')
+      setScanStatus('Fetching market data across all DEXs...')
       const result = await arbitrageService.scanForOpportunities({
-        tokenAddress: address,
+        tokenAddress: '', // No longer used for a single token
         tradeSizeUSD,
         selectedChains: filters.selectedChains
       })

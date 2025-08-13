@@ -198,96 +198,77 @@ async function searchPairs(query: string): Promise<DexScreenerPairRow[]> {
   return rows
 }
 
+import { POPULAR_TOKENS } from '../data/tokens'
+
 async function fetchUsdtPairsForChains(chains: string[]): Promise<DexScreenerPairRow[]> {
-  console.log('Starting enhanced token fetching for chains:', chains)
-  
-  const allPairs: DexScreenerPairRow[] = []
-  
-  // Strategy 1: Fetch from chain-specific token lists
+  console.log('Starting optimized token fetching for chains:', chains)
+
+  // 1. Collect all token addresses for the selected chains
+  let tokenAddresses: string[] = []
   for (const chain of chains) {
-    const chainTokens = CHAIN_TOKENS[chain as keyof typeof CHAIN_TOKENS] || []
-    console.log(`Fetching ${chainTokens.length} tokens for chain: ${chain}`)
-    
-    for (const tokenSymbol of chainTokens.slice(0, 50)) { // Limit to 50 per chain to avoid rate limiting
-      try {
-        const pairs = await searchPairs(tokenSymbol)
-        const chainPairs = pairs.filter(pair => 
-          pair.chainId.toLowerCase() === chain.toLowerCase() &&
-          pair.priceUsd > 0
-        )
-        allPairs.push(...chainPairs)
-        await new Promise(resolve => setTimeout(resolve, 100)) // Rate limiting
-      } catch (error) {
-        console.error(`Failed to fetch ${tokenSymbol} on ${chain}:`, error)
-      }
+    if (POPULAR_TOKENS[chain]) {
+      tokenAddresses.push(...Object.values(POPULAR_TOKENS[chain]))
     }
   }
   
-  // Strategy 2: DEX-specific searches to ensure coverage
-  for (const [dexId, queries] of Object.entries(DEX_SEARCH_QUERIES)) {
-    console.log(`Fetching DEX-specific data for ${dexId}`)
-    
-    for (const query of queries) {
-      try {
-        const pairs = await searchPairs(query)
-        const dexPairs = pairs.filter(pair => 
-          pair.dexId.toLowerCase().includes(dexId.toLowerCase()) &&
-          pair.priceUsd > 0
-        )
-        allPairs.push(...dexPairs)
-        await new Promise(resolve => setTimeout(resolve, 150)) // Rate limiting
-      } catch (error) {
-        console.error(`Failed to fetch ${query} on ${dexId}:`, error)
-      }
+  // Remove duplicates
+  tokenAddresses = [...new Set(tokenAddresses)]
+  
+  if (tokenAddresses.length === 0) {
+    console.log('No popular tokens found for the selected chains.')
+    return []
+  }
+
+  // 2. Fetch all pairs for these tokens in a single API call
+  const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddresses.join(',')}`
+  
+  try {
+    const resp = await axios.get<DexScreenerTokenResponse>(url, { timeout: 20000 })
+    const allPairs = resp.data?.pairs || []
+
+    // 3. Filter, normalize, and deduplicate the results
+    const rows: DexScreenerPairRow[] = []
+    const seen = new Set<string>()
+
+    for (const p of allPairs) {
+      const price = Number(p.priceUsd)
+      // Basic validation
+      if (!p.chainId || !p.dexId || !isFinite(price) || price <= 0 || !p.baseToken?.address) continue
+
+      // Filter by selected chains
+      const chainId = String(p.chainId).toLowerCase()
+      if (!chains.includes(chainId)) continue
+
+      // Deduplicate by chain:dex:baseAddress
+      const key = `${chainId}:${p.dexId}:${p.baseToken.address}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      rows.push({
+        chainId: chainId,
+        dexId: String(p.dexId).toLowerCase(),
+        priceUsd: price,
+        baseToken: {
+          address: p.baseToken.address.toLowerCase(),
+          symbol: p.baseToken.symbol || '',
+          name: p.baseToken.name || ''
+        },
+        quoteToken: {
+          address: (p.quoteToken?.address || '').toLowerCase(),
+          symbol: p.quoteToken?.symbol || '',
+          name: p.quoteToken?.name || ''
+        }
+      })
     }
+
+    console.log(`Optimized fetching complete. Found ${rows.length} unique pairs.`)
+    return rows
+
+  } catch (error) {
+    console.error('Failed to fetch pairs from DexScreener using optimized method:', error)
+    // Fallback or error handling - for now, return empty
+    return []
   }
-  
-  // Strategy 3: Broader search for additional tokens
-  const additionalQueries = ['USDT', 'USDC', 'DAI', 'WETH', 'WBTC', 'LINK', 'UNI', 'AAVE', 'CRV']
-  console.log('Fetching additional data with broader search...')
-  
-  for (const query of additionalQueries) {
-    try {
-      const pairs = await searchPairs(query)
-      const validPairs = pairs.filter(pair => 
-        chains.includes(pair.chainId.toLowerCase()) &&
-        pair.priceUsd > 0
-      )
-      allPairs.push(...validPairs)
-      await new Promise(resolve => setTimeout(resolve, 200)) // Rate limiting
-    } catch (error) {
-      console.error(`Failed to fetch ${query}:`, error)
-    }
-  }
-  
-  // Deduplicate by chain:dex:baseAddress
-  const seen = new Set<string>()
-  const unique: DexScreenerPairRow[] = []
-  for (const pair of allPairs) {
-    const key = `${pair.chainId}:${pair.dexId}:${pair.baseToken.address}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    unique.push(pair)
-  }
-  
-  // Sort by price (highest first) and ensure we have good coverage
-  unique.sort((a, b) => b.priceUsd - a.priceUsd)
-  
-  console.log(`Enhanced fetching complete. Total unique pairs: ${unique.length}`)
-  
-  // Log distribution by DEX and chain
-  const dexCounts: Record<string, number> = {}
-  const chainCounts: Record<string, number> = {}
-  
-  for (const pair of unique) {
-    dexCounts[pair.dexId] = (dexCounts[pair.dexId] || 0) + 1
-    chainCounts[pair.chainId] = (chainCounts[pair.chainId] || 0) + 1
-  }
-  
-  console.log('Distribution by DEX:', dexCounts)
-  console.log('Distribution by Chain:', chainCounts)
-  
-  return unique
 }
 
 async function fetchDirectFromDexs(): Promise<DexScreenerPairRow[]> {

@@ -37,9 +37,8 @@ class ArbitrageService {
 
     const startTime = Date.now()
     try {
-      console.log('Starting arbitrage scan for token:', options.tokenAddress)
+      console.log('Starting market-wide arbitrage scan...')
       
-      // 1. Get market data for all tokens to find opportunities
       const chainIds = options.selectedChains || SUPPORTED_CHAINS.map(c => c.id)
       const marketData = await dexScreenerService.fetchUsdtPairsForChains(chainIds)
       
@@ -48,40 +47,34 @@ class ArbitrageService {
         return { opportunities: [], scanTime: Date.now() - startTime }
       }
 
-      // 2. Find the specific token in the market data
-      let tokenPairs = marketData.filter(pair => 
-        pair.baseToken.address.toLowerCase() === options.tokenAddress.toLowerCase() ||
-        pair.baseToken.symbol.toLowerCase() === options.tokenAddress.toLowerCase()
-      )
+      // Group pairs by token address
+      const pairsByToken: Record<string, DexScreenerPairRow[]> = {}
+      for (const pair of marketData) {
+        const address = pair.baseToken.address
+        if (!pairsByToken[address]) {
+          pairsByToken[address] = []
+        }
+        pairsByToken[address].push(pair)
+      }
 
-      if (tokenPairs.length === 0) {
-        console.log('Token not found in market data, trying direct fetch...')
-        const directPairs = await dexScreenerService.fetchDexScreenerPairsByTokenAddress(options.tokenAddress)
-        if (directPairs.length > 0) {
-          tokenPairs.push(...directPairs)
+      let allOpportunities: ArbitrageOpportunity[] = []
+
+      // Find opportunities for each token
+      for (const tokenAddress in pairsByToken) {
+        const tokenPairs = pairsByToken[tokenAddress]
+        if (tokenPairs.length > 1) {
+          const opportunities = this.findOpportunitiesForToken(tokenPairs, options.tradeSizeUSD)
+          allOpportunities.push(...opportunities)
         }
       }
 
-      // 3. If still no pairs, try searching by symbol
-      if (tokenPairs.length === 0) {
-        console.log('Trying symbol search...')
-        const searchPairs = await dexScreenerService.searchPairs(options.tokenAddress)
-        tokenPairs = searchPairs.filter(pair => 
-          chainIds.includes(pair.chainId.toLowerCase())
-        )
-      }
+      // Sort all opportunities by net profit
+      allOpportunities.sort((a, b) => b.netProfit - a.netProfit)
 
-      if (tokenPairs.length === 0) {
-        return { opportunities: [], scanTime: Date.now() - startTime }
-      }
-
-      // 4. Generate arbitrage opportunities from the pairs
-      const opportunities = this.generateArbitrageOpportunities(tokenPairs, options.tradeSizeUSD)
-      
-      console.log(`Found ${opportunities.length} arbitrage opportunities for ${options.tokenAddress}`)
+      console.log(`Scan complete! Found ${allOpportunities.length} potential opportunities.`)
 
       return {
-        opportunities: opportunities,
+        opportunities: allOpportunities,
         scanTime: Date.now() - startTime
       }
     } catch (error) {
@@ -96,7 +89,7 @@ class ArbitrageService {
     }
   }
 
-  private generateArbitrageOpportunities(pairs: DexScreenerPairRow[], tradeSizeUSD: number): ArbitrageOpportunity[] {
+  private findOpportunitiesForToken(pairs: DexScreenerPairRow[], tradeSizeUSD: number): ArbitrageOpportunity[] {
     const opportunities: ArbitrageOpportunity[] = []
     
     // Group pairs by chain
@@ -213,7 +206,7 @@ class ArbitrageService {
       }
     }
 
-    return opportunities.sort((a, b) => b.netProfit - a.netProfit)
+    return opportunities
   }
 
   private estimateGasCostSimple(chainId: string): number {
